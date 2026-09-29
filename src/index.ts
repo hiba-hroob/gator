@@ -1,3 +1,4 @@
+import { getRecommendationsForUser } from "./lib/db/queries/recommendations.js";
 import { readConfig, setUser } from "./config.js";
 import { getStatsForUser } from "./lib/db/queries/stats.js";
 import {
@@ -859,6 +860,61 @@ async function handlerStats(
     );
   }
 }
+
+async function handlerForYou(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  let limit = 10;
+
+  if (args.length > 0) {
+    const parsedLimit = Number(args[0]);
+
+    if (
+      !Number.isInteger(parsedLimit) ||
+      parsedLimit <= 0
+    ) {
+      throw new Error(
+        "limit must be a positive integer",
+      );
+    }
+
+    limit = parsedLimit;
+  }
+
+  const posts =
+    await getRecommendationsForUser(
+      user.id,
+      limit,
+    );
+
+  console.log("🐊 For You");
+  console.log();
+
+  if (posts.length === 0) {
+    console.log("No recommendations yet.");
+    return;
+  }
+
+  for (const post of posts) {
+    console.log(`* ${post.title}`);
+    console.log(`  Category: ${post.category}`);
+    console.log(`  Feed: ${post.feedName}`);
+    console.log(`  URL: ${post.url}`);
+    console.log(`  Why: ${post.reason}`);
+
+    if (post.publishedAt) {
+      console.log(
+        `  Published: ${post.publishedAt}`,
+      );
+    }
+
+    console.log();
+  }
+}
+
+
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
 
@@ -982,6 +1038,12 @@ registerCommand(
   middlewareLoggedIn(handlerStats),
 );
 
+
+registerCommand(
+  registry,
+  "for-you",
+  middlewareLoggedIn(handlerForYou),
+);
 
 registerCommand(
   registry,
