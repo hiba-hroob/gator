@@ -949,6 +949,96 @@ async function handlerSummarize(
 
   console.log(summary);
 }
+
+async function handlerDigest(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  let limit = 5;
+
+  if (args.length > 0) {
+    const parsedLimit = Number(args[0]);
+
+    if (
+      !Number.isInteger(parsedLimit) ||
+      parsedLimit <= 0
+    ) {
+      throw new Error(
+        "limit must be a positive integer",
+      );
+    }
+
+    limit = parsedLimit;
+  }
+
+  const recommendations =
+    await getRecommendationsForUser(
+      user.id,
+      limit,
+    );
+
+  console.log("🐊 Gator Daily Digest");
+  console.log();
+
+  if (recommendations.length === 0) {
+    console.log(
+      "No recommendations available.",
+    );
+    return;
+  }
+
+  for (let i = 0; i < recommendations.length; i++) {
+    const post = recommendations[i];
+
+    console.log(
+      `${i + 1}. ${post.title}`,
+    );
+
+    console.log(
+      `   Category: ${post.category}`,
+    );
+
+    console.log(
+      `   Feed: ${post.feedName}`,
+    );
+
+    console.log(
+      `   Why: ${post.reason}`,
+    );
+
+    console.log(
+      `   URL: ${post.url}`,
+    );
+
+    console.log();
+    console.log("   Summary:");
+
+    try {
+      const summary = await summarizeText(
+        post.title,
+        post.description,
+        post.url,
+      );
+
+      for (const line of summary.split("\n")) {
+        console.log(`   ${line}`);
+      }
+    } catch (error) {
+      console.log(
+        "   Summary unavailable.",
+      );
+      console.error(error);
+    }
+
+    console.log();
+    console.log("─".repeat(60));
+    console.log();
+  }
+}
+
+
+
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
 
@@ -957,6 +1047,12 @@ async function main(): Promise<void> {
     "login",
     handlerLogin,
   );
+
+registerCommand(
+  registry,
+  "digest",
+  middlewareLoggedIn(handlerDigest),
+);
 
   registerCommand(
     registry,
