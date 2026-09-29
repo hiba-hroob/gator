@@ -1,5 +1,5 @@
 import { readConfig, setUser } from "./config.js";
-
+import { getStatsForUser } from "./lib/db/queries/stats.js";
 import {
   createPost,
   getPostsForUser,
@@ -830,7 +830,35 @@ async function handlerUnread(
 
   console.log("Post marked as unread");
 }
+async function handlerStats(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const stats = await getStatsForUser(user.id);
 
+  console.log("🐊 Gator Stats");
+  console.log();
+
+  console.log(`Feeds followed: ${stats.feeds}`);
+  console.log(`Total posts: ${stats.posts}`);
+  console.log(`Unread posts: ${stats.unread}`);
+  console.log(`Saved posts: ${stats.saved}`);
+  console.log();
+
+  console.log("Categories:");
+
+  if (stats.categories.length === 0) {
+    console.log("* No categories yet");
+    return;
+  }
+
+  for (const category of stats.categories) {
+    console.log(
+      `* ${category.category}: ${category.count}`,
+    );
+  }
+}
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
 
@@ -947,6 +975,13 @@ registerCommand(
   "read",
   middlewareLoggedIn(handlerRead),
 );
+
+registerCommand(
+  registry,
+  "stats",
+  middlewareLoggedIn(handlerStats),
+);
+
 
 registerCommand(
   registry,
