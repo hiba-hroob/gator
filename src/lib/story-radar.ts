@@ -25,6 +25,7 @@ const STOP_WORDS = new Set([
   "been",
   "being",
   "before",
+  "between",
   "could",
   "from",
   "have",
@@ -75,6 +76,35 @@ const STOP_WORDS = new Set([
   "out",
   "new",
   "just",
+  "show",
+  "hn",
+  "read",
+  "using",
+  "use",
+  "used",
+  "about",
+  "introducing",
+
+  // Very common technology/news words.
+  // They should not be enough to identify
+  // two stories as the same story.
+  "ai",
+  "agent",
+  "agents",
+  "model",
+  "models",
+  "system",
+  "systems",
+  "api",
+  "technology",
+  "tech",
+  "software",
+  "developer",
+  "developers",
+  "application",
+  "applications",
+  "tool",
+  "tools",
 ]);
 
 function tokenize(title: string): string[] {
@@ -82,7 +112,10 @@ function tokenize(title: string): string[] {
     ...new Set(
       title
         .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .replace(
+          /[^\p{L}\p{N}\s]/gu,
+          " ",
+        )
         .split(/\s+/)
         .filter(
           (word) =>
@@ -93,31 +126,17 @@ function tokenize(title: string): string[] {
   ];
 }
 
-function similarity(
-  left: string[],
-  right: string[],
-): number {
-  if (
-    left.length === 0 ||
-    right.length === 0
-  ) {
-    return 0;
+function getHost(url: string): string {
+  try {
+    return new URL(url)
+      .hostname
+      .replace(/^www\./, "")
+      .toLowerCase();
+  } catch {
+    return url
+      .trim()
+      .toLowerCase();
   }
-
-  const rightSet = new Set(right);
-
-  let intersection = 0;
-
-  for (const word of left) {
-    if (rightSet.has(word)) {
-      intersection++;
-    }
-  }
-
-  return (
-    intersection /
-    Math.min(left.length, right.length)
-  );
 }
 
 function getTimestamp(
@@ -148,7 +167,9 @@ function withinTimeWindow(
     getTimestamp(left.publishedAt);
 
   const rightTime =
-    getTimestamp(right.publishedAt);
+    getTimestamp(
+      right.publishedAt,
+    );
 
   if (
     leftTime === null ||
@@ -166,15 +187,68 @@ function withinTimeWindow(
   return hoursApart <= 72;
 }
 
-function compareTitles(
+function sharedWords(
+  left: string[],
+  right: string[],
+): number {
+  const rightSet = new Set(right);
+
+  let count = 0;
+
+  for (const word of left) {
+    if (rightSet.has(word)) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+function similarity(
+  left: string[],
+  right: string[],
+): number {
+  if (
+    left.length === 0 ||
+    right.length === 0
+  ) {
+    return 0;
+  }
+
+  const intersection =
+    sharedWords(
+      left,
+      right,
+    );
+
+  const union = new Set([
+    ...left,
+    ...right,
+  ]);
+
+  return (
+    intersection /
+    union.size
+  );
+}
+
+function shouldCluster(
   left: RadarPost,
   right: RadarPost,
-): number {
-  const leftTokens =
-    tokenize(left.title);
+): boolean {
+  // A real multi-source story must
+  // come from different domains.
+  const leftHost =
+    getHost(left.url);
 
-  const rightTokens =
-    tokenize(right.title);
+  const rightHost =
+    getHost(right.url);
+
+  if (
+    leftHost === rightHost
+  ) {
+    return false;
+  }
 
   if (
     !withinTimeWindow(
@@ -182,39 +256,53 @@ function compareTitles(
       right,
     )
   ) {
-    return 0;
+    return false;
   }
 
-  return similarity(
-    leftTokens,
-    rightTokens,
-  );
-}
+  const leftTokens =
+    tokenize(left.title);
 
-function getHost(
-  url: string,
-): string {
-  try {
-    return new URL(url)
-      .hostname
-      .replace(/^www\./, "")
-      .toLowerCase();
-  } catch {
-    return url;
+  const rightTokens =
+    tokenize(right.title);
+
+  if (
+    leftTokens.length === 0 ||
+    rightTokens.length === 0
+  ) {
+    return false;
   }
+
+  const shared =
+    sharedWords(
+      leftTokens,
+      rightTokens,
+    );
+
+  // One common word is not enough.
+  if (shared < 2) {
+    return false;
+  }
+
+  const score =
+    similarity(
+      leftTokens,
+      rightTokens,
+    );
+
+  return score >= 0.45;
 }
 
 function calculateClusterScore(
   posts: RadarPost[],
 ): number {
-  const sourceCount =
+  const sources =
     new Set(
       posts.map((post) =>
         getHost(post.url),
       ),
     ).size;
 
-  const feedCount =
+  const feeds =
     new Set(
       posts.map(
         (post) => post.feedName,
@@ -235,7 +323,8 @@ function calculateClusterScore(
 
     const ageHours = Math.max(
       0,
-      (Date.now() - timestamp) /
+      (Date.now() -
+        timestamp) /
         (1000 * 60 * 60),
     );
 
@@ -244,113 +333,152 @@ function calculateClusterScore(
   }
 
   return (
-    sourceCount * 30 +
-    feedCount * 15 +
+    sources * 40 +
+    feeds * 20 +
     posts.length * 10 +
     recencyScore
+  );
+}
+
+function chooseRepresentativeTitle(
+  posts: RadarPost[],
+): string {
+  return (
+    [...posts].sort(
+      (a, b) => {
+        const aTokens =
+          tokenize(a.title)
+            .length;
+
+        const bTokens =
+          tokenize(b.title)
+            .length;
+
+        return (
+          bTokens - aTokens
+        );
+      },
+    )[0]?.title ??
+    posts[0]?.title ??
+    "Untitled story"
   );
 }
 
 export function clusterPosts(
   posts: RadarPost[],
 ): StoryCluster[] {
-  const clusters: RadarPost[][] = [];
-  const assigned = new Set<string>();
+  const clusters: RadarPost[][] =
+    [];
+
+  const assigned =
+    new Set<string>();
 
   for (const post of posts) {
-    if (assigned.has(post.id)) {
+    if (
+      assigned.has(post.id)
+    ) {
       continue;
     }
 
-    const cluster: RadarPost[] = [
-      post,
-    ];
+    const cluster: RadarPost[] =
+      [post];
 
     assigned.add(post.id);
 
     for (const candidate of posts) {
       if (
-        assigned.has(candidate.id) ||
-        candidate.id === post.id
+        assigned.has(
+          candidate.id,
+        )
       ) {
         continue;
       }
 
-      const score =
-        compareTitles(
+      if (
+        shouldCluster(
           post,
+          candidate,
+        )
+      ) {
+        cluster.push(
           candidate,
         );
 
-      if (score >= 0.5) {
-        cluster.push(candidate);
-        assigned.add(candidate.id);
+        assigned.add(
+          candidate.id,
+        );
       }
     }
 
-    clusters.push(cluster);
+    const sourceCount =
+      new Set(
+        cluster.map((item) =>
+          getHost(item.url),
+        ),
+      ).size;
+
+    // A Story Radar card is only
+    // valid when multiple sources
+    // actually reported the story.
+    if (
+      cluster.length >= 2 &&
+      sourceCount >= 2
+    ) {
+      clusters.push(cluster);
+    }
   }
 
   return clusters
-    .filter(
-      (cluster) => cluster.length >= 2,
-    )
-    .map((cluster, index) => {
-      const feeds =
-        new Set(
-          cluster.map(
-            (post) => post.feedName,
-          ),
-        );
+    .map(
+      (cluster, index) => {
+        const feeds =
+          new Set(
+            cluster.map(
+              (post) =>
+                post.feedName,
+            ),
+          );
 
-      const sources =
-        new Set(
-          cluster.map((post) =>
-            getHost(post.url),
-          ),
-        );
+        const sources =
+          new Set(
+            cluster.map(
+              (post) =>
+                getHost(
+                  post.url,
+                ),
+            ),
+          );
 
-      const categories =
-        [
+        const categories = [
           ...new Set(
             cluster.map(
-              (post) => post.category,
+              (post) =>
+                post.category,
             ),
           ),
         ];
 
-      const representative =
-        [...cluster].sort((a, b) => {
-          const aTokens =
-            tokenize(a.title).length;
-
-          const bTokens =
-            tokenize(b.title).length;
-
-          return (
-            Math.abs(
-              aTokens - 10,
-            ) -
-            Math.abs(
-              bTokens - 10,
-            )
-          );
-        })[0] ?? cluster[0];
-
-      return {
-        id: `story-${index + 1}`,
-        title: representative.title,
-        posts: cluster,
-        sourceCount: sources.size,
-        feedCount: feeds.size,
-        categories,
-        score:
-          calculateClusterScore(
-            cluster,
-          ),
-      };
-    })
+        return {
+          id: `story-${index + 1}`,
+          title:
+            chooseRepresentativeTitle(
+              cluster,
+            ),
+          posts: cluster,
+          sourceCount:
+            sources.size,
+          feedCount:
+            feeds.size,
+          categories,
+          score:
+            calculateClusterScore(
+              cluster,
+            ),
+        };
+      },
+    )
     .sort(
-      (a, b) => b.score - a.score,
+      (a, b) =>
+        b.score - a.score,
     );
 }
