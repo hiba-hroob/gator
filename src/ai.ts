@@ -6,14 +6,19 @@ function decodeHtml(text: string): string {
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, code) =>
-      String.fromCharCode(Number(code)),
+    .replace(
+      /&#(\d+);/g,
+      (_, code) => String.fromCharCode(Number(code)),
     );
 }
 
-function isVideoOrSocialUrl(url: string): boolean {
+function isVideoOrSocialUrl(
+  url: string,
+): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const host = new URL(url)
+      .hostname
+      .toLowerCase();
 
     return (
       host.includes("youtube.com") ||
@@ -28,7 +33,9 @@ function isVideoOrSocialUrl(url: string): boolean {
   }
 }
 
-function extractMainHtml(html: string): string {
+function extractMainHtml(
+  html: string,
+): string {
   const articleMatch = html.match(
     /<article\b[^>]*>([\s\S]*?)<\/article>/i,
   );
@@ -48,7 +55,9 @@ function extractMainHtml(html: string): string {
   return html;
 }
 
-function stripHtml(text: string): string {
+function stripHtml(
+  text: string,
+): string {
   return decodeHtml(
     text
       .replace(
@@ -79,6 +88,18 @@ function stripHtml(text: string): string {
         /<aside[\s\S]*?<\/aside>/gi,
         " ",
       )
+      .replace(
+        /<table[\s\S]*?<\/table>/gi,
+        " ",
+      )
+      .replace(
+        /<pre[\s\S]*?<\/pre>/gi,
+        " ",
+      )
+      .replace(
+        /<code[\s\S]*?<\/code>/gi,
+        " ",
+      )
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim(),
@@ -96,7 +117,8 @@ async function fetchArticleText(
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Gator/2.0",
-        Accept: "text/html,application/xhtml+xml",
+        Accept:
+          "text/html,application/xhtml+xml",
       },
       signal: AbortSignal.timeout(8000),
     });
@@ -106,7 +128,6 @@ async function fetchArticleText(
     }
 
     const html = await response.text();
-
     const mainHtml = extractMainHtml(html);
     const text = stripHtml(mainHtml);
 
@@ -120,52 +141,142 @@ async function fetchArticleText(
   }
 }
 
-function splitSentences(text: string): string[] {
+function splitSentences(
+  text: string,
+): string[] {
   return text
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
-    .filter(
-      (sentence) =>
-        sentence.length >= 50 &&
-        sentence.length <= 500,
-    );
+    .filter((sentence) => {
+      if (
+        sentence.length < 50 ||
+        sentence.length > 500
+      ) {
+        return false;
+      }
+
+      return !isLowQualitySentence(sentence);
+    });
 }
 
-function tokenize(text: string): string[] {
+function isLowQualitySentence(
+  sentence: string,
+): boolean {
+  const words = sentence
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length < 8) {
+    return true;
+  }
+
+  const numericTokens = words.filter(
+    (word) =>
+      /^\d[\d.,:%-]*$/.test(word) ||
+      /^\d+$/.test(word),
+  );
+
+  const numericRatio =
+    numericTokens.length / words.length;
+
+  if (numericRatio > 0.25) {
+    return true;
+  }
+
+  const punctuationCount = (
+    sentence.match(/[,:;()[\]{}]/g) ?? []
+  ).length;
+
+  if (
+    punctuationCount /
+      Math.max(sentence.length, 1) >
+    0.08
+  ) {
+    return true;
+  }
+
+  const hasLongNumberSequence =
+    /\d+\s+\d+\s+\d+/.test(sentence);
+
+  if (hasLongNumberSequence) {
+    return true;
+  }
+
+  const hasTableLikePattern =
+    /\b(?:IP|DES|AES|RSA|SHA)\b.*\d+\s+\d+\s+\d+/i.test(
+      sentence,
+    );
+
+  if (hasTableLikePattern) {
+    return true;
+  }
+
+  if (
+    sentence.includes("Article URL:") &&
+    sentence.includes("Comments URL:")
+  ) {
+    return true;
+  }
+
+  if (
+    sentence.includes("Points:") &&
+    sentence.includes("# Comments:")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function tokenize(
+  text: string,
+): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(
+      /[^\p{L}\p{N}\s]/gu,
+      " ",
+    )
     .split(/\s+/)
-    .filter((word) => word.length >= 3);
+    .filter(
+      (word) => word.length >= 3,
+    );
 }
 
 function scoreSentences(
   title: string,
   text: string,
 ) {
-  const sentences = splitSentences(text);
+  const sentences =
+    splitSentences(text);
 
   const titleWords = new Set(
     tokenize(title),
   );
 
-  const frequencies = new Map<string, number>();
+  const frequencies =
+    new Map<string, number>();
 
-  for (const word of tokenize(text)) {
+  for (
+    const word of tokenize(text)
+  ) {
     frequencies.set(
       word,
-      (frequencies.get(word) ?? 0) + 1,
+      (frequencies.get(word) ?? 0) +
+        1,
     );
   }
 
   return sentences.map(
     (sentence, index) => {
-      const words = tokenize(sentence);
+      const words =
+        tokenize(sentence);
 
       let score = 0;
 
       for (const word of words) {
-        score += frequencies.get(word) ?? 0;
+        score +=
+          frequencies.get(word) ?? 0;
 
         if (titleWords.has(word)) {
           score += 6;
@@ -196,23 +307,29 @@ function buildSummary(
   title: string,
   text: string,
 ): string {
-  const scored = scoreSentences(
-    title,
-    text,
-  );
+  const scored =
+    scoreSentences(
+      title,
+      text,
+    );
 
   if (scored.length === 0) {
     return [
-      "• Not enough article text was available for a summary.",
+      "• Not enough clean article text was available for a summary.",
       "",
       `Why it matters: ${title}`,
     ].join("\n");
   }
 
-  const selected = scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .sort((a, b) => a.index - b.index);
+  const selected =
+    scored
+      .sort(
+        (a, b) => b.score - a.score,
+      )
+      .slice(0, 3)
+      .sort(
+        (a, b) => a.index - b.index,
+      );
 
   return [
     ...selected.map(
@@ -247,9 +364,8 @@ export async function summarizeText(
     );
   }
 
-  const fallback = stripHtml(
-    description ?? "",
-  );
+  const fallback =
+    stripHtml(description ?? "");
 
   if (fallback.length > 300) {
     return buildSummary(
@@ -260,7 +376,7 @@ export async function summarizeText(
 
   return [
     "• Article content could not be extracted.",
-    "• The source did not provide enough text for a reliable summary.",
+    "• The source did not provide enough clean text for a reliable summary.",
     "",
     `Why it matters: ${title}`,
   ].join("\n");
