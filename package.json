@@ -4,14 +4,15 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-  "start": "tsx ./src/index.ts",
-  "test": "node --import tsx --test tests/*.test.ts"
-},
+    "start": "tsx ./src/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.13",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
     "fast-xml-parser": "^5.11.1",
     "postgres": "^3.4.9"
   }

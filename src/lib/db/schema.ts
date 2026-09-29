@@ -14,6 +14,7 @@ export const users = pgTable("users", {
     .defaultNow()
     .$onUpdate(() => new Date()),
   name: text("name").notNull().unique(),
+  passwordHash: text("password_hash"),
 });
 
 export const feeds = pgTable("feeds", {
@@ -123,3 +124,17 @@ export const postReads = pgTable(
 );
 
 export type PostRead = typeof postReads.$inferSelect;
+export const sessions = pgTable("sessions", {
+  id: uuid("id").primaryKey().defaultRandom().notNull(),
+  createdAt: timestamp("created_at")
+    .notNull()
+    .defaultNow(),
+  tokenHash: text("token_hash").notNull().unique(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, {
+      onDelete: "cascade",
+    }),
+  expiresAt: timestamp("expires_at")
+    .notNull(),
+});
