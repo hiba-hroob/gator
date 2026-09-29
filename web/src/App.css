@@ -1127,3 +1127,95 @@ nav {
     padding: 24px 20px;
   }
 }
+.story-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.story-card {
+  padding: 22px;
+  background: white;
+  border: 1px solid #e1e7ec;
+  border-radius: 18px;
+  box-shadow:
+    0 12px 30px
+    rgba(23, 32, 42, 0.04);
+}
+
+.story-badge {
+  display: inline-flex;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #eef3f6;
+  color: #405563;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.story-card h3 {
+  margin: 14px 0 10px;
+  line-height: 1.4;
+  font-size: 18px;
+}
+
+.story-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #778690;
+  font-size: 12px;
+}
+
+.story-meta span {
+  padding: 5px 8px;
+  background: #f5f7f8;
+  border-radius: 8px;
+}
+
+.story-sources {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.source-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e5eaee;
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.source-item:hover {
+  background: #f2f5f7;
+}
+
+.source-item strong {
+  font-size: 12px;
+  color: #586a76;
+}
+
+.source-item span {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.source-item small {
+  color: #8997a1;
+  font-size: 11px;
+}
+
+.radar-count {
+  color: #7d8b96;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 780px) {
+  .story-grid {
+    grid-template-columns: 1fr;
+  }
+}

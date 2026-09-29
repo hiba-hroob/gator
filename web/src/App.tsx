@@ -36,6 +36,16 @@ type Post = {
   reason?: string;
 };
 
+type Story = {
+  id: string;
+  title: string;
+  posts: Post[];
+  sourceCount: number;
+  feedCount: number;
+  categories: string[];
+  score: number;
+};
+
 type DashboardData = {
   user: User;
   stats: Stats;
@@ -71,10 +81,17 @@ function App() {
   const [dashboard, setDashboard] =
     useState<DashboardData | null>(null);
 
-  const [authMode, setAuthMode] =
-    useState<"login" | "register">("login");
+  const [stories, setStories] =
+    useState<Story[]>([]);
 
-  const [name, setName] = useState("");
+  const [authMode, setAuthMode] =
+    useState<"login" | "register">(
+      "login",
+    );
+
+  const [name, setName] =
+    useState("");
+
   const [password, setPassword] =
     useState("");
 
@@ -105,6 +122,26 @@ function App() {
   const [summaryTitle, setSummaryTitle] =
     useState("");
 
+  const loadStories =
+    async () => {
+      try {
+        const data =
+          await api<{
+            stories: Story[];
+          }>(
+            "/api/stories",
+          );
+
+        setStories(data.stories);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load stories",
+        );
+      }
+    };
+
   const loadCurrentUser =
     async () => {
       try {
@@ -119,9 +156,12 @@ function App() {
           );
 
         setDashboard(data);
+
+        await loadStories();
       } catch {
         setUser(null);
         setDashboard(null);
+        setStories([]);
       } finally {
         setLoading(false);
       }
@@ -145,19 +185,20 @@ function App() {
           ? "/api/auth/login"
           : "/api/auth/register";
 
-      const data = await api<{
-        user: User;
-      }>(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json",
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          password,
-        }),
-      });
+      const data =
+        await api<{
+          user: User;
+        }>(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            name: name.trim(),
+            password,
+          }),
+        });
 
       setUser(data.user);
       setName("");
@@ -168,7 +209,11 @@ function App() {
           "/api/dashboard",
         );
 
-      setDashboard(dashboardData);
+      setDashboard(
+        dashboardData,
+      );
+
+      await loadStories();
     } catch (err) {
       setAuthError(
         err instanceof Error
@@ -189,14 +234,17 @@ function App() {
         },
       );
     } catch {
-      // Even if logout fails,
-      // clear the local UI state.
+      // Clear local state even if
+      // the server request fails.
     }
 
     setUser(null);
     setDashboard(null);
+    setStories([]);
     setPosts([]);
-    setActiveView("dashboard");
+    setActiveView(
+      "dashboard",
+    );
     setSummary("");
   };
 
@@ -209,6 +257,8 @@ function App() {
 
       setDashboard(data);
       setUser(data.user);
+
+      await loadStories();
     };
 
   const loadPosts = async (
@@ -220,9 +270,9 @@ function App() {
 
       if (mode === "saved") {
         const data =
-          await api<{ posts: Post[] }>(
-            "/api/saved",
-          );
+          await api<{
+            posts: Post[];
+          }>("/api/saved");
 
         setPosts(data.posts);
         return;
@@ -231,7 +281,10 @@ function App() {
       const params =
         new URLSearchParams();
 
-      params.set("limit", "20");
+      params.set(
+        "limit",
+        "20",
+      );
 
       if (mode === "unread") {
         params.set(
@@ -241,7 +294,9 @@ function App() {
       }
 
       const data =
-        await api<{ posts: Post[] }>(
+        await api<{
+          posts: Post[];
+        }>(
           `/api/posts?${params.toString()}`,
         );
 
@@ -267,14 +322,18 @@ function App() {
       setError("");
 
       const data =
-        await api<{ posts: Post[] }>(
+        await api<{
+          posts: Post[];
+        }>(
           `/api/search?q=${encodeURIComponent(
             search.trim(),
           )}`,
         );
 
       setPosts(data.posts);
-      setActiveView("search");
+      setActiveView(
+        "search",
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -307,7 +366,8 @@ function App() {
       await refreshDashboard();
 
       if (
-        activeView === "unread"
+        activeView ===
+        "unread"
       ) {
         await loadPosts(
           "unread",
@@ -354,8 +414,13 @@ function App() {
     post: Post,
   ) => {
     try {
-      setSummaryTitle(post.title);
-      setSummary("Loading summary...");
+      setSummaryTitle(
+        post.title,
+      );
+
+      setSummary(
+        "Loading summary...",
+      );
 
       const data =
         await api<{
@@ -367,7 +432,9 @@ function App() {
           )}`,
         );
 
-      setSummary(data.summary);
+      setSummary(
+        data.summary,
+      );
     } catch (err) {
       setSummary(
         err instanceof Error
@@ -384,7 +451,10 @@ function App() {
     setSummary("");
     setError("");
 
-    if (view === "dashboard") {
+    if (
+      view ===
+      "dashboard"
+    ) {
       refreshDashboard().catch(
         (err) => {
           setError(
@@ -444,12 +514,15 @@ function App() {
             <button
               type="button"
               className={
-                authMode === "login"
+                authMode ===
+                "login"
                   ? "auth-tab active"
                   : "auth-tab"
               }
               onClick={() => {
-                setAuthMode("login");
+                setAuthMode(
+                  "login",
+                );
                 setAuthError("");
               }}
             >
@@ -477,7 +550,9 @@ function App() {
 
           <form
             className="auth-form"
-            onSubmit={handleAuth}
+            onSubmit={
+              handleAuth
+            }
           >
             <label>
               Username
@@ -508,7 +583,8 @@ function App() {
                 }
                 placeholder="At least 8 characters"
                 autoComplete={
-                  authMode === "login"
+                  authMode ===
+                  "login"
                     ? "current-password"
                     : "new-password"
                 }
@@ -526,11 +602,14 @@ function App() {
             <button
               className="auth-submit"
               type="submit"
-              disabled={authLoading}
+              disabled={
+                authLoading
+              }
             >
               {authLoading
                 ? "Please wait..."
-                : authMode === "login"
+                : authMode ===
+                    "login"
                   ? "Login to Gator"
                   : "Create account"}
             </button>
@@ -565,7 +644,9 @@ function App() {
                 : "nav"
             }
             onClick={() =>
-              navigate("dashboard")
+              navigate(
+                "dashboard",
+              )
             }
           >
             <span>⌂</span>
@@ -574,12 +655,15 @@ function App() {
 
           <button
             className={
-              activeView === "latest"
+              activeView ===
+              "latest"
                 ? "nav active"
                 : "nav"
             }
             onClick={() =>
-              navigate("latest")
+              navigate(
+                "latest",
+              )
             }
           >
             <span>📰</span>
@@ -588,12 +672,15 @@ function App() {
 
           <button
             className={
-              activeView === "unread"
+              activeView ===
+              "unread"
                 ? "nav active"
                 : "nav"
             }
             onClick={() =>
-              navigate("unread")
+              navigate(
+                "unread",
+              )
             }
           >
             <span>🔵</span>
@@ -602,12 +689,15 @@ function App() {
 
           <button
             className={
-              activeView === "saved"
+              activeView ===
+              "saved"
                 ? "nav active"
                 : "nav"
             }
             onClick={() =>
-              navigate("saved")
+              navigate(
+                "saved",
+              )
             }
           >
             <span>⭐</span>
@@ -676,7 +766,9 @@ function App() {
             />
 
             <button
-              onClick={runSearch}
+              onClick={
+                runSearch
+              }
               aria-label="Search"
             >
               🔎
@@ -740,25 +832,89 @@ function App() {
                 </div>
               </div>
 
-              <div className="post-grid">
-                {dashboard.recommendations.map(
-                  (post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      onRead={
-                        markRead
-                      }
-                      onSave={
-                        savePost
-                      }
-                      onSummary={
-                        showSummary
-                      }
-                    />
-                  ),
-                )}
+              {dashboard
+                .recommendations
+                .length === 0 ? (
+                <div className="empty-state">
+                  <div>
+                    🎯
+                  </div>
+
+                  <h3>
+                    No recommendations yet
+                  </h3>
+
+                  <p>
+                    Save a few posts and Gator
+                    will learn your interests.
+                  </p>
+                </div>
+              ) : (
+                <div className="post-grid">
+                  {dashboard.recommendations.map(
+                    (post) => (
+                      <PostCard
+                        key={
+                          post.id
+                        }
+                        post={
+                          post
+                        }
+                        onRead={
+                          markRead
+                        }
+                        onSave={
+                          savePost
+                        }
+                        onSummary={
+                          showSummary
+                        }
+                      />
+                    ),
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="content-section">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">
+                    STORY RADAR
+                  </p>
+
+                  <h3>
+                    One story, multiple sources
+                  </h3>
+                </div>
+
+                <span className="radar-count">
+                  {stories.length}{" "}
+                  stories
+                </span>
               </div>
+
+              {stories.length === 0 ? (
+                <div className="loading-card">
+                  No multi-source stories
+                  detected yet.
+                </div>
+              ) : (
+                <div className="story-grid">
+                  {stories.map(
+                    (story) => (
+                      <StoryCard
+                        key={
+                          story.id
+                        }
+                        story={
+                          story
+                        }
+                      />
+                    ),
+                  )}
+                </div>
+              )}
             </section>
 
             <section className="content-section">
@@ -775,29 +931,32 @@ function App() {
               </div>
 
               <div className="category-row">
-                {dashboard.stats.categories.map(
-                  (category) => (
-                    <div
-                      className="category-chip"
-                      key={
-                        category.category
-                      }
-                    >
-                      <span>
-                        #
-                        {
+                {dashboard
+                  .stats
+                  .categories
+                  .map(
+                    (category) => (
+                      <div
+                        className="category-chip"
+                        key={
                           category.category
                         }
-                      </span>
+                      >
+                        <span>
+                          #
+                          {
+                            category.category
+                          }
+                        </span>
 
-                      <strong>
-                        {
-                          category.count
-                        }
-                      </strong>
-                    </div>
-                  ),
-                )}
+                        <strong>
+                          {
+                            category.count
+                          }
+                        </strong>
+                      </div>
+                    ),
+                  )}
               </div>
             </section>
           </>
@@ -820,9 +979,7 @@ function App() {
                   "search"
                     ? `Results for "${search}"`
                     : activeView
-                        .charAt(
-                          0,
-                        )
+                        .charAt(0)
                         .toUpperCase() +
                       activeView.slice(
                         1,
@@ -840,7 +997,9 @@ function App() {
                 {posts.map(
                   (post) => (
                     <PostCard
-                      key={post.id}
+                      key={
+                        post.id
+                      }
                       post={post}
                       onRead={
                         markRead
@@ -912,9 +1071,18 @@ function App() {
               {summary
                 .split("\n")
                 .map(
-                  (line, index) => (
-                    <p key={index}>
-                      {line}
+                  (
+                    line,
+                    index,
+                  ) => (
+                    <p
+                      key={
+                        index
+                      }
+                    >
+                      {
+                        line
+                      }
                     </p>
                   ),
                 )}
@@ -961,9 +1129,15 @@ function PostCard({
   onSummary,
 }: {
   post: Post;
-  onRead: (post: Post) => void;
-  onSave: (post: Post) => void;
-  onSummary: (post: Post) => void;
+  onRead: (
+    post: Post,
+  ) => void;
+  onSave: (
+    post: Post,
+  ) => void;
+  onSummary: (
+    post: Post,
+  ) => void;
 }) {
   return (
     <article className="post-card">
@@ -983,7 +1157,8 @@ function PostCard({
 
       {post.reason && (
         <p className="reason">
-          ✦ {post.reason}
+          ✦{" "}
+          {post.reason}
         </p>
       )}
 
@@ -1007,7 +1182,9 @@ function PostCard({
 
         <button
           onClick={() =>
-            onSummary(post)
+            onSummary(
+              post,
+            )
           }
         >
           🤖 Summary
@@ -1033,4 +1210,71 @@ function PostCard({
   );
 }
 
+function StoryCard({
+  story,
+}: {
+  story: Story;
+}) {
+  return (
+    <article className="story-card">
+      <div className="story-badge">
+        🧠 Story Radar
+      </div>
+
+      <h3>
+        {story.title}
+      </h3>
+
+      <div className="story-meta">
+        <span>
+          {story.sourceCount}{" "}
+          sources
+        </span>
+
+        <span>
+          {story.feedCount}{" "}
+          feeds
+        </span>
+
+        {story.categories.map(
+          (category) => (
+            <span
+              key={category}
+            >
+              #{category}
+            </span>
+          ),
+        )}
+      </div>
+
+      <div className="story-sources">
+        {story.posts.map(
+          (post) => (
+            <a
+              key={post.id}
+              href={post.url}
+              target="_blank"
+              rel="noreferrer"
+              className="source-item"
+            >
+              <strong>
+                {post.feedName}
+              </strong>
+
+              <span>
+                {post.title}
+              </span>
+
+              <small>
+                Open source ↗
+              </small>
+            </a>
+          ),
+        )}
+      </div>
+    </article>
+  );
+}
+
 export default App;
+
