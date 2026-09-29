@@ -6,6 +6,7 @@ export async function createFeed(
   name: string,
   url: string,
   userId: string,
+  category: string = "general",
 ) {
   const [result] = await db
     .insert(feeds)
@@ -13,6 +14,7 @@ export async function createFeed(
       name,
       url,
       userId,
+      category,
     })
     .returning();
 
@@ -27,12 +29,14 @@ export async function getFeeds() {
       updatedAt: feeds.updatedAt,
       name: feeds.name,
       url: feeds.url,
+      category: feeds.category,
       userId: feeds.userId,
       lastFetchedAt: feeds.lastFetchedAt,
       userName: users.name,
     })
     .from(feeds)
-    .innerJoin(users, eq(feeds.userId, users.id));
+    .innerJoin(users, eq(feeds.userId, users.id))
+    .orderBy(asc(feeds.name));
 }
 
 export async function getFeedByURL(url: string) {

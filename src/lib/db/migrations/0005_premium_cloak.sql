@@ -1,0 +1,1 @@
+ALTER TABLE "feeds" ADD COLUMN "category" text DEFAULT 'general' NOT NULL;

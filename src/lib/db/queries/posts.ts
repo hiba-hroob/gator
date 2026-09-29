@@ -38,7 +38,18 @@ export async function createPost(
 export async function getPostsForUser(
   userId: string,
   limit: number,
+  category?: string,
 ) {
+  const conditions = [
+    eq(feedFollows.userId, userId),
+  ];
+
+  if (category) {
+    conditions.push(
+      eq(feeds.category, category),
+    );
+  }
+
   return await db
     .select({
       id: posts.id,
@@ -50,6 +61,7 @@ export async function getPostsForUser(
       publishedAt: posts.publishedAt,
       feedId: posts.feedId,
       feedName: feeds.name,
+      category: feeds.category,
     })
     .from(posts)
     .innerJoin(
@@ -60,9 +72,7 @@ export async function getPostsForUser(
       feedFollows,
       eq(feedFollows.feedId, feeds.id),
     )
-    .where(
-      eq(feedFollows.userId, userId),
-    )
+    .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
     .limit(limit);
 }
@@ -71,21 +81,35 @@ export async function searchPosts(
   userId: string,
   query: string,
   limit: number,
+  category?: string,
 ) {
   const terms = query
     .trim()
     .split(/\s+/)
     .filter(Boolean);
 
-  const conditions = terms.map((term) => {
-    const search = `%${term}%`;
+  const searchConditions = terms.map(
+    (term) => {
+      const search = `%${term}%`;
 
-    return or(
-      ilike(posts.title, search),
-      ilike(posts.description, search),
-      ilike(posts.url, search),
+      return or(
+        ilike(posts.title, search),
+        ilike(posts.description, search),
+        ilike(posts.url, search),
+      );
+    },
+  );
+
+  const conditions = [
+    eq(feedFollows.userId, userId),
+    ...searchConditions,
+  ];
+
+  if (category) {
+    conditions.push(
+      eq(feeds.category, category),
     );
-  });
+  }
 
   return await db
     .select({
@@ -95,6 +119,7 @@ export async function searchPosts(
       description: posts.description,
       publishedAt: posts.publishedAt,
       feedName: feeds.name,
+      category: feeds.category,
     })
     .from(posts)
     .innerJoin(
@@ -105,16 +130,10 @@ export async function searchPosts(
       feedFollows,
       eq(feedFollows.feedId, feeds.id),
     )
-    .where(
-      and(
-        eq(feedFollows.userId, userId),
-        ...conditions,
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
     .limit(limit);
 }
-
 
 export async function savePost(
   userId: string,
@@ -127,7 +146,9 @@ export async function savePost(
     .limit(1);
 
   if (!post) {
-    throw new Error(`Post ${postUrl} does not exist`);
+    throw new Error(
+      `Post ${postUrl} does not exist`,
+    );
   }
 
   const [saved] = await db
@@ -142,9 +163,6 @@ export async function savePost(
   return saved;
 }
 
-
-
-
 export async function getSavedPostsForUser(
   userId: string,
   limit: number,
@@ -157,6 +175,7 @@ export async function getSavedPostsForUser(
       description: posts.description,
       publishedAt: posts.publishedAt,
       feedName: feeds.name,
+      category: feeds.category,
     })
     .from(savedPosts)
     .innerJoin(
@@ -187,7 +206,9 @@ export async function unsavePost(
     .limit(1);
 
   if (!post) {
-    throw new Error(`Post ${postUrl} does not exist`);
+    throw new Error(
+      `Post ${postUrl} does not exist`,
+    );
   }
 
   await db

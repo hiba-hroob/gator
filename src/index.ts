@@ -114,7 +114,6 @@ async function handlerLogin(
   }
 
   const config = readConfig();
-
   setUser(config, username);
 
   console.log(
@@ -144,7 +143,6 @@ async function handlerRegister(
   const user = await createUser(username);
 
   const config = readConfig();
-
   setUser(config, username);
 
   console.log(
@@ -170,7 +168,6 @@ async function handlerUsers(
   ...args: string[]
 ): Promise<void> {
   const users = await getUsers();
-
   const config = readConfig();
 
   for (const user of users) {
@@ -199,11 +196,13 @@ async function handlerAddFeed(
 
   const name = args[0];
   const url = args[1];
+  const category = args[2] || "general";
 
   const feed = await createFeed(
     name,
     url,
     user.id,
+    category,
   );
 
   const follow = await createFeedFollow(
@@ -226,8 +225,10 @@ async function handlerFeeds(
 
   for (const feed of feeds) {
     console.log(`* ${feed.name}`);
+    console.log(`  Category: ${feed.category}`);
     console.log(`  URL: ${feed.url}`);
     console.log(`  User: ${feed.userName}`);
+    console.log();
   }
 }
 
@@ -397,9 +398,7 @@ async function scrapeFeeds(): Promise<void> {
   const rssFeed =
     await fetchFeed(feed.url);
 
-  await markFeedFetched(
-    feed.id,
-  );
+  await markFeedFetched(feed.id);
 
   for (
     const item of rssFeed.channel.item
@@ -489,18 +488,42 @@ async function handlerBrowse(
   user: User,
   ...args: string[]
 ): Promise<void> {
-  let limit = 2;
+  let limit = 10;
+  let category: string | undefined;
 
   if (args.length > 0) {
-    limit = Number(args[0]);
+    const firstArg = args[0];
+    const parsedLimit = Number(firstArg);
 
     if (
-      Number.isNaN(limit) ||
-      limit <= 0
+      Number.isInteger(parsedLimit) &&
+      parsedLimit > 0
     ) {
-      throw new Error(
-        "limit must be a positive number",
-      );
+      limit = parsedLimit;
+
+      if (args.length > 1) {
+        category = args[1];
+      }
+    } else {
+      category = firstArg;
+
+      if (args.length > 1) {
+        const parsedCategoryLimit =
+          Number(args[1]);
+
+        if (
+          !Number.isInteger(
+            parsedCategoryLimit,
+          ) ||
+          parsedCategoryLimit <= 0
+        ) {
+          throw new Error(
+            "limit must be a positive integer",
+          );
+        }
+
+        limit = parsedCategoryLimit;
+      }
     }
   }
 
@@ -508,11 +531,35 @@ async function handlerBrowse(
     await getPostsForUser(
       user.id,
       limit,
+      category,
     );
+
+  if (category) {
+    console.log(
+      `Posts in category: ${category}`,
+    );
+    console.log();
+  }
+
+  if (posts.length === 0) {
+    console.log(
+      "No posts found.",
+    );
+
+    return;
+  }
 
   for (const post of posts) {
     console.log(
       `* ${post.title}`,
+    );
+
+    console.log(
+      `  Category: ${post.category}`,
+    );
+
+    console.log(
+      `  Feed: ${post.feedName}`,
     );
 
     console.log(
@@ -531,10 +578,6 @@ async function handlerBrowse(
       );
     }
 
-    console.log(
-      `  Feed: ${post.feedName}`,
-    );
-
     console.log();
   }
 }
@@ -545,50 +588,58 @@ async function handlerSearch(
   ...args: string[]
 ): Promise<void> {
   if (args.length === 0) {
-    throw new Error(
-      "search query is required",
-    );
+    throw new Error("search query is required");
   }
 
-  const query =
-    args.join(" ");
+  let category: string | undefined;
+  const queryArgs: string[] = [];
 
-  const posts =
-    await searchPosts(
-      user.id,
-      query,
-      20,
-    );
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--category") {
+      if (i + 1 >= args.length) {
+        throw new Error("category is required");
+      }
 
-  console.log(
-    `Search results for: ${query}`,
+      category = args[i + 1];
+      i++;
+      continue;
+    }
+
+    queryArgs.push(args[i]);
+  }
+
+  if (queryArgs.length === 0) {
+    throw new Error("search query is required");
+  }
+
+  const query = queryArgs.join(" ");
+
+  const posts = await searchPosts(
+    user.id,
+    query,
+    20,
+    category,
   );
 
-  if (posts.length === 0) {
-    console.log(
-      "No posts found.",
-    );
+  console.log(`Search results for: ${query}`);
 
+  if (category) {
+    console.log(`Category: ${category}`);
+  }
+
+  if (posts.length === 0) {
+    console.log("No posts found.");
     return;
   }
 
   for (const post of posts) {
-    console.log(
-      `* ${post.title}`,
-    );
-
-    console.log(
-      `  Feed: ${post.feedName}`,
-    );
-
-    console.log(
-      `  URL: ${post.url}`,
-    );
+    console.log(`* ${post.title}`);
+    console.log(`  Category: ${post.category}`);
+    console.log(`  Feed: ${post.feedName}`);
+    console.log(`  URL: ${post.url}`);
 
     if (post.publishedAt) {
-      console.log(
-        `  Published: ${post.publishedAt}`,
-      );
+      console.log(`  Published: ${post.publishedAt}`);
     }
 
     console.log();
@@ -602,16 +653,16 @@ async function handlerSave(
 ): Promise<void> {
   if (args.length === 0) {
     throw new Error(
-      "post id is required",
+      "post URL is required",
     );
   }
 
-  const postId = args[0];
+  const postUrl = args[0];
 
   const saved =
     await savePost(
       user.id,
-      postId,
+      postUrl,
     );
 
   if (!saved) {
@@ -638,11 +689,11 @@ async function handlerSaved(
     limit = Number(args[0]);
 
     if (
-      Number.isNaN(limit) ||
+      !Number.isInteger(limit) ||
       limit <= 0
     ) {
       throw new Error(
-        "limit must be a positive number",
+        "limit must be a positive integer",
       );
     }
   }
@@ -671,6 +722,10 @@ async function handlerSaved(
     );
 
     console.log(
+      `  Category: ${post.category}`,
+    );
+
+    console.log(
       `  Feed: ${post.feedName}`,
     );
 
@@ -695,15 +750,15 @@ async function handlerUnsave(
 ): Promise<void> {
   if (args.length === 0) {
     throw new Error(
-      "post id is required",
+      "post URL is required",
     );
   }
 
-  const postId = args[0];
+  const postUrl = args[0];
 
   await unsavePost(
     user.id,
-    postId,
+    postUrl,
   );
 
   console.log(
