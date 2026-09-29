@@ -1,16 +1,20 @@
 import { db } from "../index.js";
+
 import {
   posts,
   feeds,
   feedFollows,
   savedPosts,
+  postReads,
 } from "../schema.js";
+
 import {
   eq,
   desc,
   and,
   or,
   ilike,
+  isNull,
 } from "drizzle-orm";
 
 export async function createPost(
@@ -219,4 +223,103 @@ export async function unsavePost(
         eq(savedPosts.postId, post.id),
       ),
     );
+}
+
+
+export async function markPostRead(
+  userId: string,
+  postUrl: string,
+) {
+  const [post] = await db
+    .select({
+      id: posts.id,
+    })
+    .from(posts)
+    .where(eq(posts.url, postUrl))
+    .limit(1);
+
+  if (!post) {
+    throw new Error(
+      `Post ${postUrl} does not exist`,
+    );
+  }
+
+  const [read] = await db
+    .insert(postReads)
+    .values({
+      userId,
+      postId: post.id,
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  return read;
+}
+
+export async function markPostUnread(
+  userId: string,
+  postUrl: string,
+) {
+  const [post] = await db
+    .select({
+      id: posts.id,
+    })
+    .from(posts)
+    .where(eq(posts.url, postUrl))
+    .limit(1);
+
+  if (!post) {
+    throw new Error(
+      `Post ${postUrl} does not exist`,
+    );
+  }
+
+  await db
+    .delete(postReads)
+    .where(
+      and(
+        eq(postReads.userId, userId),
+        eq(postReads.postId, post.id),
+      ),
+    );
+}
+
+export async function getUnreadPostsForUser(
+  userId: string,
+  limit: number,
+) {
+  return await db
+    .select({
+      id: posts.id,
+      title: posts.title,
+      url: posts.url,
+      description: posts.description,
+      publishedAt: posts.publishedAt,
+      feedName: feeds.name,
+      category: feeds.category,
+    })
+    .from(posts)
+    .innerJoin(
+      feeds,
+      eq(posts.feedId, feeds.id),
+    )
+    .innerJoin(
+      feedFollows,
+      eq(feedFollows.feedId, feeds.id),
+    )
+    .leftJoin(
+      postReads,
+      and(
+        eq(postReads.postId, posts.id),
+        eq(postReads.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(feedFollows.userId, userId),
+        isNull(postReads.id),
+      ),
+    )
+    .orderBy(desc(posts.publishedAt))
+    .limit(limit);
 }

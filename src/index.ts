@@ -3,6 +3,9 @@ import { readConfig, setUser } from "./config.js";
 import {
   createPost,
   getPostsForUser,
+  getUnreadPostsForUser,
+  markPostRead,
+  markPostUnread,
   searchPosts,
   savePost,
   getSavedPostsForUser,
@@ -490,81 +493,100 @@ async function handlerBrowse(
 ): Promise<void> {
   let limit = 10;
   let category: string | undefined;
+  let unreadOnly = false;
 
-  if (args.length > 0) {
-    const firstArg = args[0];
-    const parsedLimit = Number(firstArg);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--unread") {
+      unreadOnly = true;
+      continue;
+    }
+
+    if (arg === "--category") {
+      if (i + 1 >= args.length) {
+        throw new Error("category is required");
+      }
+
+      category = args[i + 1];
+      i++;
+      continue;
+    }
+
+    if (arg === "--limit") {
+      if (i + 1 >= args.length) {
+        throw new Error("limit is required");
+      }
+
+      const parsedLimit = Number(args[i + 1]);
+
+      if (
+        !Number.isInteger(parsedLimit) ||
+        parsedLimit <= 0
+      ) {
+        throw new Error(
+          "limit must be a positive integer",
+        );
+      }
+
+      limit = parsedLimit;
+      i++;
+      continue;
+    }
+
+    const parsedLimit = Number(arg);
 
     if (
       Number.isInteger(parsedLimit) &&
       parsedLimit > 0
     ) {
       limit = parsedLimit;
-
-      if (args.length > 1) {
-        category = args[1];
-      }
-    } else {
-      category = firstArg;
-
-      if (args.length > 1) {
-        const parsedCategoryLimit =
-          Number(args[1]);
-
-        if (
-          !Number.isInteger(
-            parsedCategoryLimit,
-          ) ||
-          parsedCategoryLimit <= 0
-        ) {
-          throw new Error(
-            "limit must be a positive integer",
-          );
-        }
-
-        limit = parsedCategoryLimit;
-      }
+      continue;
     }
+
+    if (!category) {
+      category = arg;
+      continue;
+    }
+
+    throw new Error(`Unknown browse option: ${arg}`);
   }
 
-  const posts =
-    await getPostsForUser(
-      user.id,
-      limit,
-      category,
+  if (unreadOnly && category) {
+    throw new Error(
+      "--unread cannot be combined with a category yet",
     );
+  }
 
-  if (category) {
+  const posts = unreadOnly
+    ? await getUnreadPostsForUser(
+        user.id,
+        limit,
+      )
+    : await getPostsForUser(
+        user.id,
+        limit,
+        category,
+      );
+
+  if (unreadOnly) {
+    console.log("Unread posts:");
+  } else if (category) {
     console.log(
       `Posts in category: ${category}`,
     );
-    console.log();
   }
 
   if (posts.length === 0) {
-    console.log(
-      "No posts found.",
-    );
-
+    console.log("No posts found.");
     return;
   }
 
   for (const post of posts) {
-    console.log(
-      `* ${post.title}`,
-    );
-
-    console.log(
-      `  Category: ${post.category}`,
-    );
-
-    console.log(
-      `  Feed: ${post.feedName}`,
-    );
-
-    console.log(
-      `  URL: ${post.url}`,
-    );
+    console.log(`* ${post.title}`);
+    console.log(`  Category: ${post.category}`);
+    console.log(`  Feed: ${post.feedName}`);
+    console.log(`  URL: ${post.url}`);
 
     if (post.description) {
       console.log(
@@ -766,6 +788,49 @@ async function handlerUnsave(
   );
 }
 
+async function handlerRead(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("post URL is required");
+  }
+
+  const postUrl = args[0];
+
+  const result = await markPostRead(
+    user.id,
+    postUrl,
+  );
+
+  if (!result) {
+    console.log("Post is already marked as read");
+    return;
+  }
+
+  console.log("Post marked as read");
+}
+
+async function handlerUnread(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("post URL is required");
+  }
+
+  const postUrl = args[0];
+
+  await markPostUnread(
+    user.id,
+    postUrl,
+  );
+
+  console.log("Post marked as unread");
+}
+
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
 
@@ -876,6 +941,18 @@ async function main(): Promise<void> {
       handlerUnsave,
     ),
   );
+
+registerCommand(
+  registry,
+  "read",
+  middlewareLoggedIn(handlerRead),
+);
+
+registerCommand(
+  registry,
+  "unread",
+  middlewareLoggedIn(handlerUnread),
+);
 
   const args =
     process.argv.slice(2);

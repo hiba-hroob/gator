@@ -43,6 +43,13 @@
       "when": 1790674695652,
       "tag": "0005_premium_cloak",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790676960882,
+      "tag": "0006_careless_nebula",
+      "breakpoints": true
     }
   ]
 }
