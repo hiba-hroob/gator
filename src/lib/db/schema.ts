@@ -77,3 +77,25 @@ export type Post = typeof posts.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Feed = typeof feeds.$inferSelect;
 export type FeedFollow = typeof feedFollows.$inferSelect;
+
+export const savedPosts = pgTable(
+  "saved_posts",
+  {
+    id: uuid("id").primaryKey().defaultRandom().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    unique("saved_posts_user_id_post_id_unique").on(
+      table.userId,
+      table.postId,
+    ),
+  ],
+);
+
+export type SavedPost = typeof savedPosts.$inferSelect;
