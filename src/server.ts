@@ -1,5 +1,7 @@
 import express from "express";
 
+import { clusterPosts } from "./lib/story-radar.js";
+
 import {
   authenticateUser,
   createSession,
@@ -31,7 +33,9 @@ import type { Request } from "express";
 
 const app = express();
 
-const PORT = 3000;
+const PORT = Number(
+  process.env.PORT ?? 3000,
+);
 
 app.use(express.json());
 
@@ -92,11 +96,20 @@ function setSessionCookie(
     ),
   );
 
+  const isProduction =
+    process.env.NODE_ENV ===
+    "production";
+
+  const securePart =
+    isProduction
+      ? "; Secure"
+      : "";
+
   res.setHeader(
     "Set-Cookie",
     `gator_session=${encodeURIComponent(
       token,
-    )}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}`,
+    )}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${securePart}`,
   );
 }
 
@@ -345,6 +358,57 @@ app.get(
       return res.status(500).json({
         error:
           "Failed to load dashboard",
+      });
+    }
+  },
+);
+
+app.get(
+  "/api/stories",
+  async (req, res) => {
+    try {
+      const user =
+        await getCurrentUser(req);
+
+      if (!user) {
+        return res.status(401).json({
+          error:
+            "Not authenticated",
+        });
+      }
+
+      const posts =
+        await getPostsForUser(
+          user.id,
+          100,
+        );
+
+      const radarPosts =
+        posts.map((post) => ({
+          id: post.id,
+          title: post.title,
+          url: post.url,
+          feedName: post.feedName,
+          category: post.category,
+          publishedAt:
+            post.publishedAt,
+        }));
+
+      const stories =
+        clusterPosts(
+          radarPosts,
+        );
+
+      return res.json({
+        stories:
+          stories.slice(0, 10),
+      });
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error:
+          "Failed to load stories",
       });
     }
   },
@@ -759,7 +823,7 @@ app.listen(
   PORT,
   () => {
     console.log(
-      `🐊 Gator API running on http://localhost:${PORT}`,
+      `🐊 Gator API running on port ${PORT}`,
     );
   },
 );
