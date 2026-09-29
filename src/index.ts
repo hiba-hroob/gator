@@ -1037,7 +1037,91 @@ async function handlerDigest(
   }
 }
 
+async function handlerDashboard(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const stats = await getStatsForUser(user.id);
+  const recommendations =
+    await getRecommendationsForUser(user.id, 3);
 
+  console.log("╔══════════════════════════════════════════════════╗");
+  console.log("║              🐊 GATOR DASHBOARD                ║");
+  console.log("╚══════════════════════════════════════════════════╝");
+  console.log();
+
+  console.log("📊 YOUR STATS");
+  console.log(`   Feeds followed: ${stats.feeds}`);
+  console.log(`   Total posts: ${stats.posts}`);
+  console.log(`   Unread posts: ${stats.unread}`);
+  console.log(`   Saved posts: ${stats.saved}`);
+  console.log();
+
+  console.log("🏷️  CATEGORIES");
+
+  if (stats.categories.length === 0) {
+    console.log("   No categories yet.");
+  } else {
+    for (const category of stats.categories) {
+      console.log(
+        `   ${category.category}: ${category.count}`,
+      );
+    }
+  }
+
+  console.log();
+
+  console.log("🎯 FOR YOU");
+
+  if (recommendations.length === 0) {
+    console.log(
+      "   No recommendations available.",
+    );
+    return;
+  }
+
+  for (let i = 0; i < recommendations.length; i++) {
+    const post = recommendations[i];
+
+    console.log();
+    console.log(
+      `   ${i + 1}. ${post.title}`,
+    );
+    console.log(
+      `      Category: ${post.category}`,
+    );
+    console.log(
+      `      Feed: ${post.feedName}`,
+    );
+    console.log(
+      `      Why: ${post.reason}`,
+    );
+
+    console.log();
+    console.log("      🤖 Summary:");
+
+    try {
+      const summary = await summarizeText(
+        post.title,
+        post.description,
+        post.url,
+      );
+
+      for (const line of summary.split("\n")) {
+        console.log(`      ${line}`);
+      }
+    } catch {
+      console.log(
+        "      Summary unavailable.",
+      );
+    }
+  }
+
+  console.log();
+  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("🐊 Keep exploring with: search, save, read");
+}
 
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
@@ -1047,6 +1131,13 @@ async function main(): Promise<void> {
     "login",
     handlerLogin,
   );
+
+
+registerCommand(
+  registry,
+  "dashboard",
+  middlewareLoggedIn(handlerDashboard),
+);
 
 registerCommand(
   registry,
