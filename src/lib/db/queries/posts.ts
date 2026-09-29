@@ -323,3 +323,26 @@ export async function getUnreadPostsForUser(
     .orderBy(desc(posts.publishedAt))
     .limit(limit);
 }
+export async function getPostByURL(
+  postUrl: string,
+) {
+  const [post] = await db
+    .select({
+      id: posts.id,
+      title: posts.title,
+      url: posts.url,
+      description: posts.description,
+      publishedAt: posts.publishedAt,
+      feedName: feeds.name,
+      category: feeds.category,
+    })
+    .from(posts)
+    .innerJoin(
+      feeds,
+      eq(posts.feedId, feeds.id),
+    )
+    .where(eq(posts.url, postUrl))
+    .limit(1);
+
+  return post;
+}

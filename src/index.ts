@@ -5,6 +5,7 @@ import {
   createPost,
   getPostsForUser,
   getUnreadPostsForUser,
+  getPostByURL,
   markPostRead,
   markPostUnread,
   searchPosts,
@@ -12,7 +13,7 @@ import {
   getSavedPostsForUser,
   unsavePost,
 } from "./lib/db/queries/posts.js";
-
+import { summarizeText } from "./ai.js";
 import {
   createUser,
   getUserByName,
@@ -914,7 +915,40 @@ async function handlerForYou(
   }
 }
 
+async function handlerSummarize(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("post URL is required");
+  }
 
+  const postUrl = args[0];
+
+  const post = await getPostByURL(postUrl);
+
+  if (!post) {
+    throw new Error(
+      `Post ${postUrl} does not exist`,
+    );
+  }
+
+  console.log(`🤖 Smart Summary`);
+  console.log();
+  console.log(`Title: ${post.title}`);
+  console.log(`Feed: ${post.feedName}`);
+  console.log(`Category: ${post.category}`);
+  console.log();
+
+ const summary = await summarizeText(
+  post.title,
+  post.description,
+  post.url,
+);
+
+  console.log(summary);
+}
 async function main(): Promise<void> {
   const registry: CommandsRegistry = {};
 
@@ -935,7 +969,11 @@ async function main(): Promise<void> {
     "reset",
     handlerReset,
   );
-
+registerCommand(
+  registry,
+  "summarize",
+  middlewareLoggedIn(handlerSummarize),
+);
   registerCommand(
     registry,
     "users",
