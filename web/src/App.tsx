@@ -101,6 +101,15 @@ function App() {
   const [dashboard, setDashboard] =
     useState<DashboardData | null>(null);
 
+  /*
+   * URLs of posts currently saved
+   * by the logged-in user.
+   */
+  const [savedUrls, setSavedUrls] =
+    useState<Set<string>>(
+      new Set(),
+    );
+
   const [stories, setStories] =
     useState<Story[]>([]);
 
@@ -171,6 +180,33 @@ function App() {
             : "Failed to load stories",
         );
       }
+    };
+
+  /*
+   * Load all saved post URLs for the
+   * current user.
+   *
+   * A larger limit prevents old saved
+   * posts from disappearing from the
+   * local saved state when the account
+   * has many saved items.
+   */
+  const loadSavedUrls =
+    async () => {
+      const data =
+        await api<{
+          posts: Post[];
+        }>(
+          "/api/saved?limit=1000",
+        );
+
+      setSavedUrls(
+        new Set(
+          data.posts.map(
+            (post) => post.url,
+          ),
+        ),
+      );
     };
 
   const showStoryBrief = async (
@@ -274,10 +310,11 @@ function App() {
                   "application/json",
               },
               body: JSON.stringify({
-                urls: selectedPosts.map(
-                  (post) =>
-                    post.url,
-                ),
+                urls:
+                  selectedPosts.map(
+                    (post) =>
+                      post.url,
+                  ),
               }),
             },
           );
@@ -317,10 +354,20 @@ function App() {
 
         setDashboard(data);
 
+        /*
+         * Important:
+         * Load the saved state immediately
+         * after the dashboard is loaded.
+         */
+        await loadSavedUrls();
+
         await loadStories();
       } catch {
         setUser(null);
         setDashboard(null);
+        setSavedUrls(
+          new Set(),
+        );
         setStories([]);
       } finally {
         setLoading(false);
@@ -373,6 +420,13 @@ function App() {
         dashboardData,
       );
 
+      /*
+       * Load saved posts after login
+       * so buttons immediately reflect
+       * the user's actual saved state.
+       */
+      await loadSavedUrls();
+
       await loadStories();
     } catch (err) {
       setAuthError(
@@ -400,6 +454,9 @@ function App() {
 
     setUser(null);
     setDashboard(null);
+    setSavedUrls(
+      new Set(),
+    );
     setStories([]);
     setPosts([]);
     setSelectedPosts([]);
@@ -420,6 +477,7 @@ function App() {
       setDashboard(data);
       setUser(data.user);
 
+      await loadSavedUrls();
       await loadStories();
     };
 
@@ -437,11 +495,23 @@ function App() {
           await api<{
             posts: Post[];
           }>(
-            "/api/saved",
+            "/api/saved?limit=1000",
           );
 
         setPosts(
           data.posts,
+        );
+
+        /*
+         * Keep local saved state in sync
+         * with the Saved page.
+         */
+        setSavedUrls(
+          new Set(
+            data.posts.map(
+              (post) => post.url,
+            ),
+          ),
         );
 
         return;
@@ -567,30 +637,119 @@ function App() {
     }
   };
 
-  const savePost = async (
+  /*
+   * SAVE / UNSAVE TOGGLE
+   *
+   * The current saved state is read
+   * from savedUrls.
+   *
+   * Saved:
+   *   DELETE /api/posts/save?url=...
+   *
+   * Not saved:
+   *   POST /api/posts/save
+   */
+  const toggleSave = async (
     post: Post,
   ) => {
     try {
-      await api(
-        "/api/posts/save",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            url: post.url,
-          }),
-        },
-      );
+      const isSaved =
+        savedUrls.has(
+          post.url,
+        );
 
+      if (isSaved) {
+        await api(
+          `/api/posts/save?url=${encodeURIComponent(
+            post.url,
+          )}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        setSavedUrls(
+          (current) => {
+            const next =
+              new Set(current);
+
+            next.delete(
+              post.url,
+            );
+
+            return next;
+          },
+        );
+
+        /*
+         * If we are currently on
+         * Saved, remove the card
+         * immediately.
+         */
+        if (
+          activeView ===
+          "saved"
+        ) {
+          setPosts(
+            (current) =>
+              current.filter(
+                (item) =>
+                  item.url !==
+                  post.url,
+              ),
+          );
+        }
+      } else {
+        await api(
+          "/api/posts/save",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              url: post.url,
+            }),
+          },
+        );
+
+        setSavedUrls(
+          (current) => {
+            const next =
+              new Set(current);
+
+            next.add(
+              post.url,
+            );
+
+            return next;
+          },
+        );
+      }
+
+      /*
+       * Refresh dashboard stats
+       * and server-backed state.
+       */
       await refreshDashboard();
+
+      /*
+       * Keep the Saved page synchronized.
+       */
+      if (
+        activeView ===
+        "saved"
+      ) {
+        await loadPosts(
+          "saved",
+        );
+      }
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to save post",
+          : "Failed to update saved post",
       );
     }
   };
@@ -1106,7 +1265,12 @@ function App() {
                             markRead
                           }
                           onSave={
-                            savePost
+                            toggleSave
+                          }
+                          saved={
+                            savedUrls.has(
+                              post.url,
+                            )
                           }
                           onSummary={
                             showSummary
@@ -1270,7 +1434,12 @@ function App() {
                           markRead
                         }
                         onSave={
-                          savePost
+                          toggleSave
+                        }
+                        saved={
+                          savedUrls.has(
+                            post.url,
+                          )
                         }
                         onSummary={
                           showSummary
@@ -1595,6 +1764,7 @@ function PostCard({
   onSummary,
   selected,
   onSelect,
+  saved,
 }: {
   post: Post;
   onRead: (
@@ -1608,6 +1778,7 @@ function PostCard({
   ) => void;
   selected: boolean;
   onSelect: () => void;
+  saved: boolean;
 }) {
   return (
     <article
@@ -1672,6 +1843,7 @@ function PostCard({
           onClick={() =>
             onSummary(post)
           }
+          type="button"
         >
           🤖 Summary
         </button>
@@ -1680,6 +1852,7 @@ function PostCard({
           onClick={() =>
             onRead(post)
           }
+          type="button"
         >
           ✓ Read
         </button>
@@ -1688,8 +1861,17 @@ function PostCard({
           onClick={() =>
             onSave(post)
           }
+          type="button"
+          aria-pressed={saved}
+          title={
+            saved
+              ? "Remove from saved"
+              : "Save post"
+          }
         >
-          ⭐ Save
+          {saved
+            ? "✅ Saved"
+            : "⭐ Save"}
         </button>
       </div>
     </article>
@@ -1773,6 +1955,7 @@ function StoryCard({
         disabled={
           briefLoading
         }
+        type="button"
       >
         {briefLoading
           ? "Building brief..."
