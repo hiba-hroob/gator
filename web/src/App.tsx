@@ -102,10 +102,20 @@ function App() {
     useState<DashboardData | null>(null);
 
   /*
-   * URLs of posts currently saved
-   * by the logged-in user.
+   * Saved URLs for the current user.
    */
   const [savedUrls, setSavedUrls] =
+    useState<Set<string>>(
+      new Set(),
+    );
+
+  /*
+   * Unread URLs for the current user.
+   *
+   * A URL inside this set is unread.
+   * A URL outside this set is read.
+   */
+  const [unreadUrls, setUnreadUrls] =
     useState<Set<string>>(
       new Set(),
     );
@@ -182,15 +192,6 @@ function App() {
       }
     };
 
-  /*
-   * Load all saved post URLs for the
-   * current user.
-   *
-   * A larger limit prevents old saved
-   * posts from disappearing from the
-   * local saved state when the account
-   * has many saved items.
-   */
   const loadSavedUrls =
     async () => {
       const data =
@@ -201,6 +202,24 @@ function App() {
         );
 
       setSavedUrls(
+        new Set(
+          data.posts.map(
+            (post) => post.url,
+          ),
+        ),
+      );
+    };
+
+  const loadUnreadUrls =
+    async () => {
+      const data =
+        await api<{
+          posts: Post[];
+        }>(
+          "/api/posts?unread=true&limit=1000",
+        );
+
+      setUnreadUrls(
         new Set(
           data.posts.map(
             (post) => post.url,
@@ -354,18 +373,16 @@ function App() {
 
         setDashboard(data);
 
-        /*
-         * Important:
-         * Load the saved state immediately
-         * after the dashboard is loaded.
-         */
         await loadSavedUrls();
-
+        await loadUnreadUrls();
         await loadStories();
       } catch {
         setUser(null);
         setDashboard(null);
         setSavedUrls(
+          new Set(),
+        );
+        setUnreadUrls(
           new Set(),
         );
         setStories([]);
@@ -420,13 +437,8 @@ function App() {
         dashboardData,
       );
 
-      /*
-       * Load saved posts after login
-       * so buttons immediately reflect
-       * the user's actual saved state.
-       */
       await loadSavedUrls();
-
+      await loadUnreadUrls();
       await loadStories();
     } catch (err) {
       setAuthError(
@@ -457,6 +469,9 @@ function App() {
     setSavedUrls(
       new Set(),
     );
+    setUnreadUrls(
+      new Set(),
+    );
     setStories([]);
     setPosts([]);
     setSelectedPosts([]);
@@ -478,6 +493,7 @@ function App() {
       setUser(data.user);
 
       await loadSavedUrls();
+      await loadUnreadUrls();
       await loadStories();
     };
 
@@ -502,10 +518,6 @@ function App() {
           data.posts,
         );
 
-        /*
-         * Keep local saved state in sync
-         * with the Saved page.
-         */
         setSavedUrls(
           new Set(
             data.posts.map(
@@ -544,6 +556,18 @@ function App() {
       setPosts(
         data.posts,
       );
+
+      if (
+        mode === "unread"
+      ) {
+        setUnreadUrls(
+          new Set(
+            data.posts.map(
+              (post) => post.url,
+            ),
+          ),
+        );
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -592,34 +616,104 @@ function App() {
     }
   };
 
-  const markRead = async (
+  /*
+   * READ / UNREAD TOGGLE
+   *
+   * If the post is unread:
+   *   POST /api/posts/read
+   *
+   * If the post is already read:
+   *   POST /api/posts/unread
+   */
+  const toggleRead = async (
     post: Post,
   ) => {
     try {
-      await api(
-        "/api/posts/read",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
+      const isUnread =
+        unreadUrls.has(
+          post.url,
+        );
+
+      if (isUnread) {
+        await api(
+          "/api/posts/read",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              url: post.url,
+            }),
           },
-          body: JSON.stringify({
-            url: post.url,
-          }),
-        },
-      );
+        );
+
+        setUnreadUrls(
+          (current) => {
+            const next =
+              new Set(current);
+
+            next.delete(
+              post.url,
+            );
+
+            return next;
+          },
+        );
+
+        /*
+         * On the Unread page the post
+         * should disappear immediately.
+         */
+        if (
+          activeView ===
+          "unread"
+        ) {
+          setPosts(
+            (current) =>
+              current.filter(
+                (item) =>
+                  item.url !==
+                  post.url,
+              ),
+          );
+        }
+      } else {
+        await api(
+          "/api/posts/unread",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              url: post.url,
+            }),
+          },
+        );
+
+        setUnreadUrls(
+          (current) => {
+            const next =
+              new Set(current);
+
+            next.add(
+              post.url,
+            );
+
+            return next;
+          },
+        );
+      }
 
       await refreshDashboard();
 
-      setSelectedPosts(
-        selectedPosts.filter(
-          (selected) =>
-            selected.id !==
-            post.id,
-        ),
-      );
-
+      /*
+       * Refresh the Unread list so the
+       * server-backed list stays correct.
+       */
       if (
         activeView ===
         "unread"
@@ -632,22 +726,13 @@ function App() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to mark post as read",
+          : "Failed to update read status",
       );
     }
   };
 
   /*
    * SAVE / UNSAVE TOGGLE
-   *
-   * The current saved state is read
-   * from savedUrls.
-   *
-   * Saved:
-   *   DELETE /api/posts/save?url=...
-   *
-   * Not saved:
-   *   POST /api/posts/save
    */
   const toggleSave = async (
     post: Post,
@@ -681,11 +766,6 @@ function App() {
           },
         );
 
-        /*
-         * If we are currently on
-         * Saved, remove the card
-         * immediately.
-         */
         if (
           activeView ===
           "saved"
@@ -728,15 +808,8 @@ function App() {
         );
       }
 
-      /*
-       * Refresh dashboard stats
-       * and server-backed state.
-       */
       await refreshDashboard();
 
-      /*
-       * Keep the Saved page synchronized.
-       */
       if (
         activeView ===
         "saved"
@@ -1262,13 +1335,18 @@ function App() {
                             post
                           }
                           onRead={
-                            markRead
+                            toggleRead
                           }
                           onSave={
                             toggleSave
                           }
                           saved={
                             savedUrls.has(
+                              post.url,
+                            )
+                          }
+                          read={
+                            !unreadUrls.has(
                               post.url,
                             )
                           }
@@ -1431,13 +1509,18 @@ function App() {
                           post
                         }
                         onRead={
-                          markRead
+                          toggleRead
                         }
                         onSave={
                           toggleSave
                         }
                         saved={
                           savedUrls.has(
+                            post.url,
+                          )
+                        }
+                        read={
+                          !unreadUrls.has(
                             post.url,
                           )
                         }
@@ -1499,6 +1582,7 @@ function App() {
               onClick={() =>
                 setSummary("")
               }
+              type="button"
             >
               ×
             </button>
@@ -1557,6 +1641,7 @@ function App() {
                   null,
                 )
               }
+              type="button"
             >
               ×
             </button>
@@ -1765,6 +1850,7 @@ function PostCard({
   selected,
   onSelect,
   saved,
+  read,
 }: {
   post: Post;
   onRead: (
@@ -1779,6 +1865,7 @@ function PostCard({
   selected: boolean;
   onSelect: () => void;
   saved: boolean;
+  read: boolean;
 }) {
   return (
     <article
@@ -1853,8 +1940,16 @@ function PostCard({
             onRead(post)
           }
           type="button"
+          aria-pressed={read}
+          title={
+            read
+              ? "Mark as unread"
+              : "Mark as read"
+          }
         >
-          ✓ Read
+          {read
+            ? "↩ Unread"
+            : "✓ Read"}
         </button>
 
         <button
