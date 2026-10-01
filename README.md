@@ -405,3 +405,10 @@ Daily Digest + Dashboard
 Gator is developed in TypeScript with PostgreSQL and Drizzle ORM.
 
 The project includes automated tests and TypeScript type checking for its main functionality.
+
+
+## 🎥 Demo Video
+
+Watch Gator in action:
+https://youtu.be/wB7XnETRX8E?si=l2m6daoxgMJGrgUr
+
