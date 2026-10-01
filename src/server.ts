@@ -1,3 +1,4 @@
+
 import express from "express";
 
 import { clusterPosts } from "./lib/story-radar.js";
@@ -119,6 +120,162 @@ function clearSessionCookie(
   res.setHeader(
     "Set-Cookie",
     "gator_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0",
+  );
+}
+
+function getSourceHost(
+  url: string,
+): string {
+  try {
+    return new URL(url)
+      .hostname
+      .replace(
+        /^www\./,
+        "",
+      )
+      .toLowerCase();
+  } catch {
+    return url
+      .trim()
+      .toLowerCase();
+  }
+}
+
+function cleanSummaryLines(
+  summary: string,
+): string[] {
+  const ignoredPatterns = [
+    /BibTeX/i,
+    /\[BibTeX\]/i,
+    /Published by/i,
+    /Article content could not be extracted/i,
+    /source did not provide enough clean text/i,
+    /could not be extracted/i,
+    /^https?:\/\//i,
+    /https?:\/\//i,
+    /^why it matters\s*:/i,
+  ];
+
+  return summary
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(
+          /^[-*•]\s*/,
+          "",
+        )
+        .trim(),
+    )
+    .filter((line) => {
+      if (line.length < 20) {
+        return false;
+      }
+
+      return !ignoredPatterns.some(
+        (pattern) =>
+          pattern.test(line),
+      );
+    });
+}
+
+function cleanSourceSummary(
+  summary: string,
+): string {
+  const lines =
+    cleanSummaryLines(
+      summary,
+    );
+
+  if (lines.length === 0) {
+    return "No reliable summary is available for this source.";
+  }
+
+  return lines
+    .slice(0, 4)
+    .map(
+      (line) => `• ${line}`,
+    )
+    .join("\n");
+}
+
+function collectTakeaways(
+  summaries: string[],
+): string[] {
+  const takeaways: string[] =
+    [];
+
+  const seen = new Set<string>();
+
+  for (const summary of summaries) {
+    const lines =
+      cleanSummaryLines(
+        summary,
+      );
+
+    for (const line of lines) {
+      const normalized =
+        line
+          .toLowerCase()
+          .replace(
+            /[^\p{L}\p{N}\s]/gu,
+            "",
+          )
+          .trim();
+
+      if (
+        !normalized ||
+        seen.has(normalized)
+      ) {
+        continue;
+      }
+
+      seen.add(normalized);
+
+      takeaways.push(
+        `• ${line}`,
+      );
+
+      if (
+        takeaways.length >= 4
+      ) {
+        return takeaways;
+      }
+    }
+  }
+
+  return takeaways;
+}
+
+
+function buildQuickComparison(
+  sources: Array<{
+    sourceHost: string;
+    summary: string;
+  }>,
+): Array<{
+  sourceHost: string;
+  focus: string;
+}> {
+  return sources.map(
+    (source) => {
+      const firstLine =
+        source.summary
+          .replace(/^•\s*/, "")
+          .split(/(?<=[.!?])\s+/)[0]
+          ?.trim() ??
+        "No concise focus was available.";
+
+      const focus =
+        firstLine.length > 180
+          ? `${firstLine.slice(0, 177)}...`
+          : firstLine;
+
+      return {
+        sourceHost:
+          source.sourceHost,
+        focus,
+      };
+    },
   );
 }
 
@@ -414,6 +571,348 @@ app.get(
   },
 );
 
+app.post(
+  "/api/stories/brief",
+  async (req, res) => {
+    try {
+      const user =
+        await getCurrentUser(req);
+
+      if (!user) {
+        return res.status(401).json({
+          error:
+            "Not authenticated",
+        });
+      }
+
+            const urls: string[] =
+        Array.isArray(
+          req.body?.urls,
+        )
+          ? [
+              ...new Set(
+                (req.body.urls as unknown[]).filter(
+                  (
+                    url,
+                  ): url is string =>
+                    typeof url ===
+                      "string" &&
+                    url.trim()
+                      .length > 0,
+                ),
+              ),
+            ]
+          : [];
+
+      if (urls.length !== 2) {
+        return res.status(400).json({
+          error:
+            "Choose exactly two sources to compare",
+        });
+      }
+
+      const requestedPostResults =
+        await Promise.all(
+          urls.map((url) =>
+            searchPosts(
+              user.id,
+              url,
+              5,
+            ),
+          ),
+        );
+
+      const requestedPosts =
+        requestedPostResults
+          .flat()
+          .filter(
+            (post) =>
+              urls.includes(
+                post.url,
+              ),
+          )
+          .filter(
+            (
+              post,
+              index,
+              all,
+            ) =>
+              all.findIndex(
+                (candidate) =>
+                  candidate.url ===
+                  post.url,
+              ) === index,
+          );
+
+      if (
+        requestedPosts.length !==
+        2
+      ) {
+        return res.status(404).json({
+          error:
+            "Not enough accessible sources were found for this comparison",
+        });
+      }
+
+      const sourceHosts =
+        new Set(
+          requestedPosts.map(
+            (post) =>
+              getSourceHost(
+                post.url,
+              ),
+          ),
+        );
+
+      if (
+        sourceHosts.size !== 2
+      ) {
+        return res.status(400).json({
+          error:
+            "Choose articles from two different source websites",
+        });
+      }
+
+      /*
+       * Reuse the stable Story Radar
+       * engine to verify that the two
+       * selected articles are actually
+       * related to the same story.
+       */
+      const radarPosts =
+        requestedPosts.map(
+          (post) => ({
+            id: post.id,
+            title: post.title,
+            url: post.url,
+            feedName:
+              post.feedName,
+            category:
+              post.category,
+            publishedAt:
+              post.publishedAt,
+          }),
+        );
+
+          const matchingStories =
+        clusterPosts(
+          radarPosts,
+        );
+
+      const selectedIds =
+        new Set(
+          requestedPosts.map(
+            (post) => post.id,
+          ),
+        );
+
+      const radarMatch =
+        matchingStories.some(
+          (story) =>
+            story.posts.length >= 2 &&
+            story.posts.every(
+              (storyPost) =>
+                selectedIds.has(
+                  storyPost.id,
+                ),
+            ),
+        );
+
+            function titleTokens(
+        title: string,
+      ): string[] {
+        const stopWords =
+          new Set([
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "this",
+            "that",
+            "into",
+            "about",
+            "after",
+            "before",
+            "their",
+            "there",
+            "what",
+            "when",
+            "where",
+            "which",
+            "news",
+            "says",
+            "said",
+            "new",
+          ]);
+
+        const importantShortWords =
+          new Set([
+            "ipo",
+            "ai",
+            "gpt",
+            "mcp",
+            "api",
+          ]);
+
+        return [
+          ...new Set(
+            title
+              .toLowerCase()
+              .replace(
+                /[^\p{L}\p{N}\s]/gu,
+                " ",
+              )
+              .split(/\s+/)
+              .map(
+                (word) =>
+                  word.trim(),
+              )
+              .filter(
+                (word) =>
+                  (
+                    word.length >=
+                    4
+                  ) ||
+                  importantShortWords.has(
+                    word,
+                  ),
+              )
+              .filter(
+                (word) =>
+                  !stopWords.has(
+                    word,
+                  ),
+              ),
+          ),
+        ];
+      }
+ 
+        
+
+      function titlesLikelySameStory(
+        left: string,
+        right: string,
+      ): boolean {
+        const leftTokens =
+          titleTokens(left);
+
+        const rightTokens =
+          titleTokens(right);
+
+        const rightSet =
+          new Set(rightTokens);
+
+        const shared =
+          leftTokens.filter(
+            (word) =>
+              rightSet.has(word),
+          );
+
+        const hasStrongAnchor =
+          shared.some(
+            (word) =>
+              word.length >= 7,
+          );
+
+        return (
+          shared.length >= 2 &&
+          hasStrongAnchor
+        );
+      }
+
+      const titleMatch =
+        titlesLikelySameStory(
+          requestedPosts[0].title,
+          requestedPosts[1].title,
+        );
+
+      const sameStory =
+        radarMatch ||
+        titleMatch;
+
+      if (!sameStory) {
+        return res.status(400).json({
+          error:
+            "These sources do not appear to cover the same story",
+        });
+      }
+
+      
+
+      const sources =
+        await Promise.all(
+          requestedPosts.map(
+            async (post) => {
+              const rawSummary =
+                await summarizeText(
+                  post.title,
+                  post.description,
+                  post.url,
+                );
+
+              return {
+                id: post.id,
+                title: post.title,
+                url: post.url,
+                feedName:
+                  post.feedName,
+                sourceHost:
+                  getSourceHost(
+                    post.url,
+                  ),
+                category:
+                  post.category,
+                summary:
+                  cleanSourceSummary(
+                    rawSummary,
+                  ),
+              };
+            },
+          ),
+        );
+
+      const takeaways =
+        collectTakeaways(
+          sources.map(
+            (source) =>
+              source.summary,
+          ),
+        );
+
+      const comparison =
+        buildQuickComparison(
+          sources.map(
+            (source) => ({
+              sourceHost:
+                source.sourceHost,
+              summary:
+                source.summary,
+            }),
+          ),
+        );
+
+      return res.json({
+        title:
+          matchingStories[0]?.title ??
+          sources[0].title,
+        sourceCount:
+          sources.length,
+        takeaways,
+        comparison,
+        sources,
+      });
+    } catch (error) {
+      console.error(error);
+
+      return res.status(500).json({
+        error:
+          "Failed to build story brief",
+      });
+    }
+  },
+);
+
 app.get(
   "/api/posts",
   async (req, res) => {
@@ -451,7 +950,8 @@ app.get(
           : undefined;
 
       const unread =
-        req.query.unread === "true";
+        req.query.unread ===
+        "true";
 
       const posts = unread
         ? await getUnreadPostsForUser(
@@ -821,9 +1321,11 @@ app.get(
 
 app.listen(
   PORT,
+  "0.0.0.0",
   () => {
     console.log(
       `🐊 Gator API running on port ${PORT}`,
     );
   },
 );
+

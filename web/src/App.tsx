@@ -1,3 +1,4 @@
+
 import {
   useEffect,
   useState,
@@ -46,6 +47,25 @@ type Story = {
   score: number;
 };
 
+type StoryBrief = {
+  title: string;
+  sourceCount: number;
+  takeaways: string[];
+  comparison: Array<{
+    sourceHost: string;
+    focus: string;
+  }>;
+  sources: Array<{
+    id: string;
+    title: string;
+    url: string;
+    feedName: string;
+    sourceHost: string;
+    category: string;
+    summary: string;
+  }>;
+};
+
 type DashboardData = {
   user: User;
   stats: Stats;
@@ -83,6 +103,15 @@ function App() {
 
   const [stories, setStories] =
     useState<Story[]>([]);
+
+  const [storyBrief, setStoryBrief] =
+    useState<StoryBrief | null>(null);
+
+  const [briefLoading, setBriefLoading] =
+    useState(false);
+
+  const [selectedPosts, setSelectedPosts] =
+    useState<Post[]>([]);
 
   const [authMode, setAuthMode] =
     useState<"login" | "register">(
@@ -132,7 +161,9 @@ function App() {
             "/api/stories",
           );
 
-        setStories(data.stories);
+        setStories(
+          data.stories,
+        );
       } catch (err) {
         setError(
           err instanceof Error
@@ -142,11 +173,140 @@ function App() {
       }
     };
 
+  const showStoryBrief = async (
+    story: Story,
+  ) => {
+    try {
+      setBriefLoading(true);
+      setError("");
+
+      const data =
+        await api<StoryBrief>(
+          "/api/stories/brief",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              urls: story.posts.map(
+                (post) => post.url,
+              ),
+            }),
+          },
+        );
+
+      setStoryBrief(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to build story brief",
+      );
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+
+  const toggleSourceSelection = (
+    post: Post,
+  ) => {
+    setError("");
+
+    const alreadySelected =
+      selectedPosts.some(
+        (selected) =>
+          selected.id === post.id,
+      );
+
+    if (alreadySelected) {
+      setSelectedPosts(
+        selectedPosts.filter(
+          (selected) =>
+            selected.id !==
+            post.id,
+        ),
+      );
+
+      return;
+    }
+
+    if (
+      selectedPosts.length >= 2
+    ) {
+      setError(
+        "Choose exactly two sources to compare.",
+      );
+
+      return;
+    }
+
+    setSelectedPosts([
+      ...selectedPosts,
+      post,
+    ]);
+  };
+
+  const compareSelectedSources =
+    async () => {
+      if (
+        selectedPosts.length !== 2
+      ) {
+        setError(
+          "Choose two sources first.",
+        );
+
+        return;
+      }
+
+      try {
+        setBriefLoading(true);
+        setError("");
+
+        const data =
+          await api<StoryBrief>(
+            "/api/stories/brief",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                urls: selectedPosts.map(
+                  (post) =>
+                    post.url,
+                ),
+              }),
+            },
+          );
+
+        setStoryBrief(data);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to compare sources",
+        );
+      } finally {
+        setBriefLoading(false);
+      }
+    };
+
+  const clearSelectedSources =
+    () => {
+      setSelectedPosts([]);
+      setError("");
+    };
+
   const loadCurrentUser =
     async () => {
       try {
         const currentUser =
-          await api<User>("/api/me");
+          await api<User>(
+            "/api/me",
+          );
 
         setUser(currentUser);
 
@@ -242,10 +402,12 @@ function App() {
     setDashboard(null);
     setStories([]);
     setPosts([]);
+    setSelectedPosts([]);
+    setStoryBrief(null);
+    setSummary("");
     setActiveView(
       "dashboard",
     );
-    setSummary("");
   };
 
   const refreshDashboard =
@@ -268,13 +430,20 @@ function App() {
       setLoading(true);
       setError("");
 
-      if (mode === "saved") {
+      if (
+        mode === "saved"
+      ) {
         const data =
           await api<{
             posts: Post[];
-          }>("/api/saved");
+          }>(
+            "/api/saved",
+          );
 
-        setPosts(data.posts);
+        setPosts(
+          data.posts,
+        );
+
         return;
       }
 
@@ -286,7 +455,9 @@ function App() {
         "20",
       );
 
-      if (mode === "unread") {
+      if (
+        mode === "unread"
+      ) {
         params.set(
           "unread",
           "true",
@@ -300,7 +471,9 @@ function App() {
           `/api/posts?${params.toString()}`,
         );
 
-      setPosts(data.posts);
+      setPosts(
+        data.posts,
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -330,7 +503,11 @@ function App() {
           )}`,
         );
 
-      setPosts(data.posts);
+      setPosts(
+        data.posts,
+      );
+
+      setSelectedPosts([]);
       setActiveView(
         "search",
       );
@@ -364,6 +541,14 @@ function App() {
       );
 
       await refreshDashboard();
+
+      setSelectedPosts(
+        selectedPosts.filter(
+          (selected) =>
+            selected.id !==
+            post.id,
+        ),
+      );
 
       if (
         activeView ===
@@ -449,6 +634,8 @@ function App() {
   ) => {
     setActiveView(view);
     setSummary("");
+    setStoryBrief(null);
+    setSelectedPosts([]);
     setError("");
 
     if (
@@ -476,6 +663,9 @@ function App() {
       loadPosts(view);
     }
   };
+
+  const canCompare =
+    selectedPosts.length === 2;
 
   if (loading) {
     return (
@@ -514,8 +704,7 @@ function App() {
             <button
               type="button"
               className={
-                authMode ===
-                "login"
+                authMode === "login"
                   ? "auth-tab active"
                   : "auth-tab"
               }
@@ -628,7 +817,10 @@ function App() {
           </div>
 
           <div>
-            <h1>Gator</h1>
+            <h1>
+              Gator
+            </h1>
+
             <span>
               Personal News Assistant
             </span>
@@ -725,7 +917,9 @@ function App() {
 
             <button
               className="logout-button"
-              onClick={logout}
+              onClick={
+                logout
+              }
             >
               Logout
             </button>
@@ -780,6 +974,52 @@ function App() {
           <div className="error-banner">
             {error}
           </div>
+        )}
+
+        {activeView !==
+          "dashboard" &&
+          posts.length > 0 && (
+          <section className="compare-toolbar">
+            <div>
+              <strong>
+                Compare sources
+              </strong>
+
+              <span>
+                {selectedPosts.length}
+                /2 selected
+              </span>
+            </div>
+
+            <div className="compare-actions">
+              <button
+                className="compare-button"
+                disabled={
+                  !canCompare ||
+                  briefLoading
+                }
+                onClick={
+                  compareSelectedSources
+                }
+              >
+                {briefLoading
+                  ? "Comparing..."
+                  : "🧠 Compare Sources"}
+              </button>
+
+              {selectedPosts.length >
+                0 && (
+                <button
+                  className="clear-compare-button"
+                  onClick={
+                    clearSelectedSources
+                  }
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </section>
         )}
 
         {activeView ===
@@ -851,27 +1091,33 @@ function App() {
                 </div>
               ) : (
                 <div className="post-grid">
-                  {dashboard.recommendations.map(
-                    (post) => (
-                      <PostCard
-                        key={
-                          post.id
-                        }
-                        post={
-                          post
-                        }
-                        onRead={
-                          markRead
-                        }
-                        onSave={
-                          savePost
-                        }
-                        onSummary={
-                          showSummary
-                        }
-                      />
-                    ),
-                  )}
+                  {dashboard
+                    .recommendations
+                    .map(
+                      (post) => (
+                        <PostCard
+                          key={
+                            post.id
+                          }
+                          post={
+                            post
+                          }
+                          onRead={
+                            markRead
+                          }
+                          onSave={
+                            savePost
+                          }
+                          onSummary={
+                            showSummary
+                          }
+                          selected={false}
+                          onSelect={() =>
+                            undefined
+                          }
+                        />
+                      ),
+                    )}
                 </div>
               )}
             </section>
@@ -894,7 +1140,8 @@ function App() {
                 </span>
               </div>
 
-              {stories.length === 0 ? (
+              {stories.length ===
+              0 ? (
                 <div className="loading-card">
                   No multi-source stories
                   detected yet.
@@ -909,6 +1156,12 @@ function App() {
                         }
                         story={
                           story
+                        }
+                        onBrief={
+                          showStoryBrief
+                        }
+                        briefLoading={
+                          briefLoading
                         }
                       />
                     ),
@@ -995,29 +1248,51 @@ function App() {
             ) : (
               <div className="post-grid">
                 {posts.map(
-                  (post) => (
-                    <PostCard
-                      key={
-                        post.id
-                      }
-                      post={post}
-                      onRead={
-                        markRead
-                      }
-                      onSave={
-                        savePost
-                      }
-                      onSummary={
-                        showSummary
-                      }
-                    />
-                  ),
+                  (post) => {
+                    const selected =
+                      selectedPosts.some(
+                        (
+                          item,
+                        ) =>
+                          item.id ===
+                          post.id,
+                      );
+
+                    return (
+                      <PostCard
+                        key={
+                          post.id
+                        }
+                        post={
+                          post
+                        }
+                        onRead={
+                          markRead
+                        }
+                        onSave={
+                          savePost
+                        }
+                        onSummary={
+                          showSummary
+                        }
+                        selected={
+                          selected
+                        }
+                        onSelect={() =>
+                          toggleSourceSelection(
+                            post,
+                          )
+                        }
+                      />
+                    );
+                  },
                 )}
               </div>
             )}
 
             {!loading &&
-              posts.length === 0 && (
+              posts.length ===
+                0 && (
                 <div className="empty-state">
                   <div>
                     📭
@@ -1090,6 +1365,197 @@ function App() {
           </div>
         </div>
       )}
+
+      {storyBrief && (
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setStoryBrief(
+              null,
+            )
+          }
+        >
+          <div
+            className="brief-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <button
+              className="close-button"
+              onClick={() =>
+                setStoryBrief(
+                  null,
+                )
+              }
+            >
+              ×
+            </button>
+
+            <div className="story-badge">
+              🧠 STORY BRIEF
+            </div>
+
+            <h2>
+              {storyBrief.title}
+            </h2>
+
+            <p className="brief-count">
+              {storyBrief.sourceCount}{" "}
+              sources compared
+            </p>
+
+            <section className="brief-section">
+              <p className="eyebrow">
+                KEY TAKEAWAYS
+              </p>
+
+              {storyBrief
+                .takeaways.length ===
+              0 ? (
+                <div className="takeaways">
+                  <div className="takeaway">
+                    No shared takeaways
+                    were extracted.
+                  </div>
+                </div>
+              ) : (
+                <div className="takeaways">
+                  {storyBrief.takeaways.map(
+                    (
+                      takeaway,
+                      index,
+                    ) => (
+                      <div
+                        className="takeaway"
+                        key={
+                          index
+                        }
+                      >
+                        {takeaway}
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="brief-section">
+              <p className="eyebrow">
+                QUICK COMPARISON
+              </p>
+
+              <div className="comparison-grid">
+                {storyBrief.comparison.map(
+                  (item) => (
+                    <div
+                      className="comparison-item"
+                      key={
+                        item.sourceHost
+                      }
+                    >
+                      <div className="comparison-host">
+                        🌐{" "}
+                        {item.sourceHost}
+                      </div>
+
+                      <p>
+                        {item.focus}
+                      </p>
+                    </div>
+                  ),
+                )}
+              </div>
+            </section>
+
+            <section className="brief-section">
+              <p className="eyebrow">
+                SOURCE PERSPECTIVES
+              </p>
+
+              <div className="brief-sources">
+                {storyBrief
+                  .sources
+                  .map(
+                    (source, index) => (
+                      <article
+                        className="brief-source"
+                        key={
+                          source.id
+                        }
+                      >
+                        <div className="source-label">
+                          SOURCE{" "}
+                          {String.fromCharCode(
+                            65 + index,
+                          )}
+                        </div>
+
+                        <div className="post-meta">
+                          <span className="category">
+                            {
+                              source.category
+                            }
+                          </span>
+
+                          <span className="source-host">
+                            🌐{" "}
+                            {source.sourceHost}
+                          </span>
+
+                          <span className="source-feed">
+                            via{" "}
+                            {source.feedName}
+                          </span>
+                        </div>
+
+                        <h3>
+                          {
+                            source.title
+                          }
+                        </h3>
+
+                        <div className="source-summary">
+                          {source.summary
+                            .split(
+                              "\n",
+                            )
+                            .map(
+                              (
+                                line,
+                                index,
+                              ) => (
+                                <p
+                                  key={
+                                    index
+                                  }
+                                >
+                                  {
+                                    line
+                                  }
+                                </p>
+                              ),
+                            )}
+                        </div>
+
+                        <a
+                          href={
+                            source.url
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="read-link"
+                        >
+                          Open source ↗
+                        </a>
+                      </article>
+                    ),
+                  )}
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1127,6 +1593,8 @@ function PostCard({
   onRead,
   onSave,
   onSummary,
+  selected,
+  onSelect,
 }: {
   post: Post;
   onRead: (
@@ -1138,9 +1606,17 @@ function PostCard({
   onSummary: (
     post: Post,
   ) => void;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   return (
-    <article className="post-card">
+    <article
+      className={
+        selected
+          ? "post-card selected-source"
+          : "post-card"
+      }
+    >
       <div className="post-meta">
         <span className="category">
           {post.category}
@@ -1150,6 +1626,18 @@ function PostCard({
           {post.feedName}
         </span>
       </div>
+
+      {onSelect && (
+        <button
+          className="source-select-button"
+          onClick={onSelect}
+          type="button"
+        >
+          {selected
+            ? "✓ Selected for comparison"
+            : "☐ Select source"}
+        </button>
+      )}
 
       <h3>
         {post.title}
@@ -1182,9 +1670,7 @@ function PostCard({
 
         <button
           onClick={() =>
-            onSummary(
-              post,
-            )
+            onSummary(post)
           }
         >
           🤖 Summary
@@ -1212,8 +1698,14 @@ function PostCard({
 
 function StoryCard({
   story,
+  onBrief,
+  briefLoading,
 }: {
   story: Story;
+  onBrief: (
+    story: Story,
+  ) => void;
+  briefLoading: boolean;
 }) {
   return (
     <article className="story-card">
@@ -1272,6 +1764,20 @@ function StoryCard({
           ),
         )}
       </div>
+
+      <button
+        className="story-brief-button"
+        onClick={() =>
+          onBrief(story)
+        }
+        disabled={
+          briefLoading
+        }
+      >
+        {briefLoading
+          ? "Building brief..."
+          : "🧠 Build Story Brief"}
+      </button>
     </article>
   );
 }
