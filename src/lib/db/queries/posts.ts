@@ -3,7 +3,6 @@ import { db } from "../index.js";
 import {
   posts,
   feeds,
-  feedFollows,
   savedPosts,
   postReads,
 } from "../schema.js";
@@ -44,9 +43,7 @@ export async function getPostsForUser(
   limit: number,
   category?: string,
 ) {
-  const conditions = [
-    eq(feedFollows.userId, userId),
-  ];
+  const conditions = [];
 
   if (category) {
     conditions.push(
@@ -71,10 +68,6 @@ export async function getPostsForUser(
     .innerJoin(
       feeds,
       eq(posts.feedId, feeds.id),
-    )
-    .innerJoin(
-      feedFollows,
-      eq(feedFollows.feedId, feeds.id),
     )
     .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
@@ -105,7 +98,6 @@ export async function searchPosts(
   );
 
   const conditions = [
-    eq(feedFollows.userId, userId),
     ...searchConditions,
   ];
 
@@ -129,10 +121,6 @@ export async function searchPosts(
     .innerJoin(
       feeds,
       eq(posts.feedId, feeds.id),
-    )
-    .innerJoin(
-      feedFollows,
-      eq(feedFollows.feedId, feeds.id),
     )
     .where(and(...conditions))
     .orderBy(desc(posts.publishedAt))
@@ -225,7 +213,6 @@ export async function unsavePost(
     );
 }
 
-
 export async function markPostRead(
   userId: string,
   postUrl: string,
@@ -303,10 +290,6 @@ export async function getUnreadPostsForUser(
       feeds,
       eq(posts.feedId, feeds.id),
     )
-    .innerJoin(
-      feedFollows,
-      eq(feedFollows.feedId, feeds.id),
-    )
     .leftJoin(
       postReads,
       and(
@@ -315,14 +298,12 @@ export async function getUnreadPostsForUser(
       ),
     )
     .where(
-      and(
-        eq(feedFollows.userId, userId),
-        isNull(postReads.id),
-      ),
+      isNull(postReads.id),
     )
     .orderBy(desc(posts.publishedAt))
     .limit(limit);
 }
+
 export async function getPostByURL(
   postUrl: string,
 ) {
