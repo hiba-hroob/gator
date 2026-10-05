@@ -1,4 +1,4 @@
-
+import path from "node:path";
 import express from "express";
 
 import { clusterPosts } from "./lib/story-radar.js";
@@ -1318,6 +1318,16 @@ app.get(
     }
   },
 );
+
+const frontendDist = path.resolve("web/dist");
+
+app.use(express.static(frontendDist));
+
+app.get("/{*splat}", (_req, res) => {
+  res.sendFile(
+    path.join(frontendDist, "index.html"),
+  );
+});
 
 app.listen(
   PORT,
