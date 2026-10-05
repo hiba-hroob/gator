@@ -5,6 +5,8 @@ export default defineConfig({
   out: "./src/lib/db/migrations",
   dialect: "postgresql",
   dbCredentials: {
-    url: "postgres://postgres:postgres@localhost:5432/gator?sslmode=disable",
+    url:
+      process.env.DATABASE_URL ??
+      "postgres://postgres:postgres@localhost:5432/gator?sslmode=disable",
   },
 });
